@@ -39,7 +39,7 @@ class SimCCLabel(BaseKeypointCodec):
     def __init__(self,
                  input_size: Tuple[int, int],
                  smoothing_type: str = 'gaussian',
-                 sigma: float = 6.0,
+                 sigma: Union[float, Tuple[float]] = 6.0,
                  simcc_split_ratio: float = 2.0,
                  label_smooth_weight: float = 0.0,
                  normalize: bool = True) -> None:
@@ -47,7 +47,10 @@ class SimCCLabel(BaseKeypointCodec):
 
         self.input_size = input_size
         self.smoothing_type = smoothing_type
-        self.sigma = sigma
+        if isinstance(sigma, float):
+            self.sigma = np.array([sigma, sigma])
+        else:
+            self.sigma = np.array(sigma)
         self.simcc_split_ratio = simcc_split_ratio
         self.label_smooth_weight = label_smooth_weight
         self.normalize = normalize
@@ -235,12 +238,12 @@ class SimCCLabel(BaseKeypointCodec):
 
             mu_x, mu_y = mu
 
-            target_x[n, k] = np.exp(-((x - mu_x)**2) / (2 * self.sigma**2))
-            target_y[n, k] = np.exp(-((y - mu_y)**2) / (2 * self.sigma**2))
+            target_x[n, k] = np.exp(-((x - mu_x)**2) / (2 * self.sigma[0]**2))
+            target_y[n, k] = np.exp(-((y - mu_y)**2) / (2 * self.sigma[1]**2))
 
         if self.normalize:
             norm_value = self.sigma * np.sqrt(np.pi * 2)
-            target_x /= norm_value
-            target_y /= norm_value
+            target_x /= norm_value[0]
+            target_y /= norm_value[1]
 
         return target_x, target_y, keypoint_weights
