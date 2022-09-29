@@ -98,7 +98,7 @@ val_pipeline = [
 # data loaders
 train_dataloader = dict(
     batch_size=128,
-    num_workers=4,
+    num_workers=10,
     persistent_workers=True,
     sampler=dict(type='DefaultSampler', shuffle=True),
     dataset=dict(
@@ -110,8 +110,8 @@ train_dataloader = dict(
         pipeline=train_pipeline,
     ))
 val_dataloader = dict(
-    batch_size=32,
-    num_workers=2,
+    batch_size=64,
+    num_workers=4,
     persistent_workers=True,
     drop_last=False,
     sampler=dict(type='DefaultSampler', shuffle=False, round_up=False),
