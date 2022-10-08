@@ -52,7 +52,7 @@ model = dict(
             checkpoint='https://download.openmmlab.com/mmpose/top_down/'
             'mobilenetv2/mobilenetv2_coco_256x192-d1e58e7b_20200727.pth',
         )),
-    neck=dict(type='GlobalAveragePooling'),
+    neck=dict(type='GeneralizedMeanPooling'),
     head=dict(
         type='SimCC_GAP_FC',
         in_channels=320,

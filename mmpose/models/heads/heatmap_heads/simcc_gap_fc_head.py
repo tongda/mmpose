@@ -138,7 +138,7 @@ class SimCC_GAP_FC(BaseHead):
         feats = self._transform_inputs(feats)
 
         # flatten the output heatmap
-        x = torch.flatten(feats, 2)
+        x = torch.flatten(feats, 1)
 
         pred_x = self.mlp_head_x(x).reshape(x.size(0), self.out_channels, -1)
         pred_y = self.mlp_head_y(x).reshape(x.size(0), self.out_channels, -1)
