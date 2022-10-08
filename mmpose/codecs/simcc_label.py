@@ -3,6 +3,7 @@ from itertools import product
 from typing import Optional, Tuple, Union
 
 import numpy as np
+import torch.nn.functional as F
 
 from mmpose.codecs.utils import get_simcc_maximum
 from mmpose.registry import KEYPOINT_CODECS
@@ -42,7 +43,9 @@ class SimCCLabel(BaseKeypointCodec):
                  sigma: Union[float, Tuple[float]] = 6.0,
                  simcc_split_ratio: float = 2.0,
                  label_smooth_weight: float = 0.0,
-                 normalize: bool = True) -> None:
+                 normalize: bool = True,
+                 use_softmax: bool = False,
+                 beta: float = 1.0) -> None:
         super().__init__()
 
         self.input_size = input_size
@@ -54,6 +57,8 @@ class SimCCLabel(BaseKeypointCodec):
         self.simcc_split_ratio = simcc_split_ratio
         self.label_smooth_weight = label_smooth_weight
         self.normalize = normalize
+        self.use_softmax = use_softmax
+        self.beta = beta
 
         if self.smoothing_type not in {'gaussian', 'standard'}:
             raise ValueError(
@@ -245,5 +250,9 @@ class SimCCLabel(BaseKeypointCodec):
             norm_value = self.sigma * np.sqrt(np.pi * 2)
             target_x /= norm_value[0]
             target_y /= norm_value[1]
+
+        if self.use_softmax:
+            target_x = F.softmax(target_x * self.beta, dim=-1)
+            target_y = F.softmax(target_y * self.beta, dim=-1)
 
         return target_x, target_y, keypoint_weights

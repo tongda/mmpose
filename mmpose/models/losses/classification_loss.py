@@ -111,15 +111,17 @@ class KLDiscretLoss(nn.Module):
             Different joint types may have different target weights.
     """
 
-    def __init__(self, use_target_weight=True):
+    def __init__(self, use_target_weight=True, beta=1.0):
         super(KLDiscretLoss, self).__init__()
 
         self.use_target_weight = use_target_weight
+        self.beta = beta
+
         self.log_softmax = nn.LogSoftmax(dim=1)  # [B,LOGITS]
         self.kl_loss = nn.KLDivLoss(reduction='none')
 
     def criterion(self, dec_outs, labels):
-        scores = self.log_softmax(dec_outs)
+        scores = self.log_softmax(dec_outs * self.beta)
         loss = torch.mean(self.kl_loss(scores, labels), dim=1)
         return loss
 
