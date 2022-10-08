@@ -141,6 +141,37 @@ def gaussian_blur(heatmaps: np.ndarray, kernel: int = 11) -> np.ndarray:
     return heatmaps
 
 
+def gaussian_blur1d(simcc: np.ndarray, kernel: int = 11) -> np.ndarray:
+    """Modulate simcc distribution with Gaussian.
+
+    Note:
+        - num_keypoints: K
+        - simcc length: Wx
+
+    Args:
+        simcc (np.ndarray[K, Wx]): model predicted simcc.
+        kernel (int): Gaussian kernel size (K) for modulation, which should
+            match the simcc gaussian sigma when training.
+            K=17 for sigma=3 and k=11 for sigma=2.
+
+    Returns:
+        np.ndarray ([K, Wx]): Modulated simcc distribution.
+    """
+    assert kernel % 2 == 1
+
+    border = (kernel - 1) // 2
+    K, Wx = simcc.shape
+
+    for k in range(K):
+        origin_max = np.max(simcc[k])
+        dr = np.zeros((1, Wx + 2 * border), dtype=np.float32)
+        dr[0, border:-border] = simcc[k].copy()
+        dr = cv2.GaussianBlur(dr, (kernel, 1), 0)
+        simcc[k] = dr[0, border:-border].copy()
+        simcc[k] *= origin_max / np.max(simcc[k])
+    return simcc
+
+
 def batch_heatmap_nms(batch_heatmaps: Tensor, kernel_size: int = 5):
     """Apply NMS on a batch of heatmaps.
 

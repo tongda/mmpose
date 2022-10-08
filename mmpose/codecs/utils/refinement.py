@@ -3,7 +3,7 @@ from itertools import product
 
 import numpy as np
 
-from .post_processing import gaussian_blur
+from .post_processing import gaussian_blur, gaussian_blur1d
 
 
 def refine_keypoints(keypoints: np.ndarray,
@@ -170,9 +170,9 @@ def refine_simcc_dark_udp(keypoints: np.ndarray, simcc: np.ndarray,
     N = simcc.shape[0]
 
     # modulate simcc
-    # simcc = gaussian_blur1d(simcc, blur_kernel_size)
-    # np.clip(simcc, 1e-3, 50., simcc)
-    # np.log(simcc, simcc)
+    simcc = gaussian_blur1d(simcc, blur_kernel_size)
+    np.clip(simcc, 1e-3, 50., simcc)
+    np.log(simcc, simcc)
 
     for n in range(N):
         px = keypoints[n]  # K,

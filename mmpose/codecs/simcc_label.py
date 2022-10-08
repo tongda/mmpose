@@ -137,12 +137,12 @@ class SimCCLabel(BaseKeypointCodec):
         keypoints, scores = get_simcc_maximum(simcc_x, simcc_y)
 
         if self.use_dark:
-            keypoints[:, :, 0] = refine_simcc_dark_udp(keypoints[:, :,
-                                                                 0], simcc_x,
-                                                       self.blur_kernel_size)
-            keypoints[:, :, 1] = refine_simcc_dark_udp(keypoints[:, :,
-                                                                 1], simcc_y,
-                                                       self.blur_kernel_size)
+            x_blur = int((self.sigma[0] * 20 - 7) // 3)
+            y_blur = int((self.sigma[1] * 20 - 7) // 3)
+            keypoints[:, :, 0] = refine_simcc_dark_udp(keypoints[:, :, 0],
+                                                       simcc_x, x_blur)
+            keypoints[:, :, 1] = refine_simcc_dark_udp(keypoints[:, :, 1],
+                                                       simcc_y, y_blur)
 
         keypoints /= self.simcc_split_ratio
 
