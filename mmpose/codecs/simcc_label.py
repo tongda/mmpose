@@ -6,6 +6,7 @@ import numpy as np
 import torch.nn.functional as F
 
 from mmpose.codecs.utils import get_simcc_maximum
+from mmpose.codecs.utils.refinement import refine_simcc_dark_udp
 from mmpose.registry import KEYPOINT_CODECS
 from .base import BaseKeypointCodec
 
@@ -45,7 +46,8 @@ class SimCCLabel(BaseKeypointCodec):
                  label_smooth_weight: float = 0.0,
                  normalize: bool = True,
                  use_softmax: bool = False,
-                 beta: float = 1.0) -> None:
+                 beta: float = 1.0,
+                 use_dark: bool = False) -> None:
         super().__init__()
 
         self.input_size = input_size
@@ -59,6 +61,7 @@ class SimCCLabel(BaseKeypointCodec):
         self.normalize = normalize
         self.use_softmax = use_softmax
         self.beta = beta
+        self.use_dark = use_dark
 
         if self.smoothing_type not in {'gaussian', 'standard'}:
             raise ValueError(
@@ -132,6 +135,14 @@ class SimCCLabel(BaseKeypointCodec):
 
         simcc_x, simcc_y = encoded
         keypoints, scores = get_simcc_maximum(simcc_x, simcc_y)
+
+        if self.use_dark:
+            keypoints[:, :, 0] = refine_simcc_dark_udp(keypoints[:, :,
+                                                                 0], simcc_x,
+                                                       self.blur_kernel_size)
+            keypoints[:, :, 1] = refine_simcc_dark_udp(keypoints[:, :,
+                                                                 1], simcc_y,
+                                                       self.blur_kernel_size)
 
         keypoints /= self.simcc_split_ratio
 

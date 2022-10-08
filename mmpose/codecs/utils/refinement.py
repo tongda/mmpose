@@ -163,3 +163,23 @@ def refine_keypoints_dark_udp(keypoints: np.ndarray, heatmaps: np.ndarray,
                                   derivative).squeeze()
 
     return keypoints
+
+
+def refine_simcc_dark_udp(keypoints: np.ndarray, simcc: np.ndarray,
+                          blur_kernel_size: int) -> np.ndarray:
+    N = simcc.shape[0]
+
+    # modulate simcc
+    # simcc = gaussian_blur1d(simcc, blur_kernel_size)
+    # np.clip(simcc, 1e-3, 50., simcc)
+    # np.log(simcc, simcc)
+
+    for n in range(N):
+        px = keypoints[n]  # K,
+        dx = 0.5 * (simcc[n, :, px + 1] - simcc[n, :, px - 1])  # K,
+        dxx = 0.25 * (
+            simcc[n, :, px + 2] - 2 * simcc[n, :, px] + simcc[n, :, px - 2])
+        offset = dx / dxx
+        keypoints[n] -= offset
+
+    return keypoints
