@@ -3,7 +3,6 @@ from itertools import product
 from typing import Optional, Tuple, Union
 
 import numpy as np
-import torch.nn.functional as F
 
 from mmpose.codecs.utils import get_simcc_maximum
 from mmpose.codecs.utils.refinement import refine_simcc_dark_udp
@@ -139,6 +138,8 @@ class SimCCLabel(BaseKeypointCodec):
         if self.use_dark:
             x_blur = int((self.sigma[0] * 20 - 7) // 3)
             y_blur = int((self.sigma[1] * 20 - 7) // 3)
+            x_blur -= int((x_blur % 2) == 0)
+            y_blur -= int((y_blur % 2) == 0)
             keypoints[:, :, 0] = refine_simcc_dark_udp(keypoints[:, :, 0],
                                                        simcc_x, x_blur)
             keypoints[:, :, 1] = refine_simcc_dark_udp(keypoints[:, :, 1],
@@ -147,7 +148,7 @@ class SimCCLabel(BaseKeypointCodec):
         keypoints /= self.simcc_split_ratio
 
         # Unsqueeze the instance dimension for single-instance results
-        if len(keypoints) == 2:
+        if len(keypoints.shape) == 2:
             keypoints = keypoints[None, :]
             scores = scores[None, :]
 
@@ -211,6 +212,10 @@ class SimCCLabel(BaseKeypointCodec):
 
         return target_x, target_y, keypoint_weights
 
+    def _softmax(self, x):
+        t = np.exp(x)
+        return t / np.sum(t, axis=-1, keepdims=True)
+
     def _generate_gaussian(
         self,
         keypoints: np.ndarray,
@@ -263,7 +268,7 @@ class SimCCLabel(BaseKeypointCodec):
             target_y /= norm_value[1]
 
         if self.use_softmax:
-            target_x = F.softmax(target_x * self.beta, dim=-1)
-            target_y = F.softmax(target_y * self.beta, dim=-1)
+            target_x = self._softmax(target_x * self.beta)
+            target_y = self._softmax(target_y * self.beta)
 
         return target_x, target_y, keypoint_weights
