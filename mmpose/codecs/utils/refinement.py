@@ -167,19 +167,28 @@ def refine_keypoints_dark_udp(keypoints: np.ndarray, heatmaps: np.ndarray,
 
 def refine_simcc_dark_udp(keypoints: np.ndarray, simcc: np.ndarray,
                           blur_kernel_size: int) -> np.ndarray:
-    N = simcc.shape[0]
+    N, K = simcc.shape[:2]
 
     # modulate simcc
     simcc = gaussian_blur1d(simcc, blur_kernel_size)
     np.clip(simcc, 1e-3, 50., simcc)
     np.log(simcc, simcc)
 
+    simcc = np.pad(simcc, ((0, 0), (0, 0), (2, 2)), 'edge')
+
     for n in range(N):
-        px = (keypoints[n] + 0.5).astype(np.int64)  # K,
-        dx = 0.5 * (simcc[n, :, px + 1] - simcc[n, :, px - 1])  # K,
-        dxx = 0.25 * (
-            simcc[n, :, px + 2] - 2 * simcc[n, :, px] + simcc[n, :, px - 2])
+        px = (keypoints[n] + 2.5).astype(np.int64).reshape(-1, 1)  # K, 1
+
+        dx0 = np.take_along_axis(simcc[n], px, axis=1)  # K, 1
+        dx1 = np.take_along_axis(simcc[n], px + 1, axis=1)
+        dx_1 = np.take_along_axis(simcc[n], px - 1, axis=1)
+        dx2 = np.take_along_axis(simcc[n], px + 2, axis=1)
+        dx_2 = np.take_along_axis(simcc[n], px - 2, axis=1)
+
+        dx = 0.5 * (dx1 - dx_1)
+        dxx = 1e-9 + 0.25 * (dx2 - 2 * dx0 + dx_2)
+
         offset = dx / dxx
-        keypoints[n] -= offset
+        keypoints[n] -= offset.reshape(-1)
 
     return keypoints
