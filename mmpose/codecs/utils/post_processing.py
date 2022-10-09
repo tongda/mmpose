@@ -1,4 +1,5 @@
 # Copyright (c) OpenMMLab. All rights reserved.
+from itertools import product
 from typing import Tuple
 
 import cv2
@@ -160,15 +161,15 @@ def gaussian_blur1d(simcc: np.ndarray, kernel: int = 11) -> np.ndarray:
     assert kernel % 2 == 1
 
     border = (kernel - 1) // 2
-    K, Wx = simcc.shape
+    N, K, Wx = simcc.shape
 
-    for k in range(K):
-        origin_max = np.max(simcc[k])
+    for n, k in product(range(N), range(K)):
+        origin_max = np.max(simcc[n, k])
         dr = np.zeros((1, Wx + 2 * border), dtype=np.float32)
-        dr[0, border:-border] = simcc[k].copy()
+        dr[0, border:-border] = simcc[n, k].copy()
         dr = cv2.GaussianBlur(dr, (kernel, 1), 0)
-        simcc[k] = dr[0, border:-border].copy()
-        simcc[k] *= origin_max / np.max(simcc[k])
+        simcc[n, k] = dr[0, border:-border].copy()
+        simcc[n, k] *= origin_max / np.max(simcc[n, k])
     return simcc
 
 

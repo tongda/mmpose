@@ -19,7 +19,7 @@ OptIntSeq = Optional[Sequence[int]]
 
 
 @MODELS.register_module()
-class RTMHead(BaseHead):
+class SimCC_IPR_Head(BaseHead):
 
     _version = 2
 
@@ -108,7 +108,7 @@ class RTMHead(BaseHead):
         B, C = feats.shape[:2]
 
         output_sigma = self.sigma_head(self.gap(feats).reshape(B, C))  # B, K*2
-        output_sigma = output_sigma.sigmoid().reshape(B, C, 2)
+        output_sigma = output_sigma.reshape(B, C, 2)
 
         # flatten the output heatmap
         x = torch.flatten(feats, 2)
@@ -173,16 +173,19 @@ class RTMHead(BaseHead):
             _feats, _feats_flip = feats
 
             _batch_coords = self.forward(_feats)
+            _batch_coords[..., 2:] = _batch_coords[..., 2:].sigmoid()
 
             _batch_coords_flip = flip_coordinates(
                 self.forward(_feats_flip),
                 flip_indices=flip_indices,
                 shift_coords=test_cfg.get('shift_coords', True),
                 input_size=input_size)
+            _batch_coords_flip[..., 2:] = _batch_coords_flip[..., 2:].sigmoid()
 
             batch_coords = (_batch_coords + _batch_coords_flip) * 0.5
         else:
             batch_coords = self.forward(feats)  # (B, K, D)
+            batch_coords[..., 2:] = batch_coords[..., 2:].sigmoid()
 
         batch_coords.unsqueeze_(dim=1)  # (B, N, K, D)
         preds = self.decode(batch_coords)

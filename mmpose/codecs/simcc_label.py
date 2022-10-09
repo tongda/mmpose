@@ -123,7 +123,7 @@ class SimCCLabel(BaseKeypointCodec):
 
         Args:
             encoded (Tuple[np.ndarray, np.ndarray]): SimCC labels for x-axis
-                and y-axis
+                and y-axis in shape (N, K, Wx)
 
         Returns:
             tuple:
@@ -134,6 +134,11 @@ class SimCCLabel(BaseKeypointCodec):
 
         simcc_x, simcc_y = encoded
         keypoints, scores = get_simcc_maximum(simcc_x, simcc_y)
+
+        # Unsqueeze the instance dimension for single-instance results
+        if len(keypoints.shape) == 2:
+            keypoints = keypoints[None, :]
+            scores = scores[None, :]
 
         if self.use_dark:
             x_blur = int((self.sigma[0] * 20 - 7) // 3)
@@ -146,11 +151,6 @@ class SimCCLabel(BaseKeypointCodec):
                                                        simcc_y, y_blur)
 
         keypoints /= self.simcc_split_ratio
-
-        # Unsqueeze the instance dimension for single-instance results
-        if len(keypoints.shape) == 2:
-            keypoints = keypoints[None, :]
-            scores = scores[None, :]
 
         return keypoints, scores
 
