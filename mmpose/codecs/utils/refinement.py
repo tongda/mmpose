@@ -175,7 +175,7 @@ def refine_simcc_dark_udp(keypoints: np.ndarray, simcc: np.ndarray,
     np.log(simcc, simcc)
 
     for n in range(N):
-        px = keypoints[n]  # K,
+        px = (keypoints[n] + 0.5).astype(np.int64)  # K,
         dx = 0.5 * (simcc[n, :, px + 1] - simcc[n, :, px - 1])  # K,
         dxx = 0.25 * (
             simcc[n, :, px + 2] - 2 * simcc[n, :, px] + simcc[n, :, px - 2])

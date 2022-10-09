@@ -19,7 +19,7 @@ OptIntSeq = Optional[Sequence[int]]
 
 
 @MODELS.register_module()
-class SimCC_IPR_Head(BaseHead):
+class SimCC_RLE_Head(BaseHead):
 
     _version = 2
 
@@ -35,8 +35,7 @@ class SimCC_IPR_Head(BaseHead):
         input_transform: str = 'select',
         input_index: Union[int, Sequence[int]] = -1,
         align_corners: bool = False,
-        simcc_loss: ConfigType = dict(type='RLELoss', use_target_weight=True),
-        reg_loss: ConfigType = dict(type='RLELoss', use_target_weight=True),
+        loss: ConfigType = dict(type='RLELoss', use_target_weight=True),
         decoder: OptConfigType = None,
         init_cfg: OptConfigType = None,
     ):
@@ -56,8 +55,7 @@ class SimCC_IPR_Head(BaseHead):
         self.input_index = input_index
         self.debias = debias
         self.beta = beta
-        self.reg_loss = MODELS.build(reg_loss)
-        self.simcc_loss = MODELS.build(simcc_loss)
+        self.loss_module = MODELS.build(loss)
         if decoder is not None:
             self.decoder = KEYPOINT_CODECS.build(decoder)
         else:
@@ -118,11 +116,11 @@ class SimCC_IPR_Head(BaseHead):
         simcc_x = self.mlp_head_x(x)
         simcc_y = self.mlp_head_y(x)
 
-        simcc_x = F.softmax(simcc_x * self.beta, dim=-1)
-        pred_x = (simcc_x * self.linspace_x).sum(dim=-1, keepdim=True)
+        pred_x = F.softmax(simcc_x * self.beta, dim=-1)
+        pred_x = (pred_x * self.linspace_x).sum(dim=-1, keepdim=True)
 
-        simcc_y = F.softmax(simcc_y * self.beta, dim=-1)
-        pred_y = (simcc_y * self.linspace_y).sum(dim=-1, keepdim=True)
+        pred_y = F.softmax(simcc_y * self.beta, dim=-1)
+        pred_y = (pred_y * self.linspace_y).sum(dim=-1, keepdim=True)
 
         if self.debias:
             C_x = simcc_x.exp().sum(dim=-1, keepdim=True)
@@ -133,7 +131,7 @@ class SimCC_IPR_Head(BaseHead):
 
         pred = torch.cat([pred_x, pred_y, output_sigma], dim=-1)
 
-        return pred, simcc_x, simcc_y
+        return pred
 
     def predict(
         self,
@@ -174,11 +172,11 @@ class SimCC_IPR_Head(BaseHead):
 
             _feats, _feats_flip = feats
 
-            _batch_coords, _, _ = self.forward(_feats)
+            _batch_coords = self.forward(_feats)
             _batch_coords[..., 2:] = _batch_coords[..., 2:].sigmoid()
 
             _batch_coords_flip = flip_coordinates(
-                self.forward(_feats_flip)[0],
+                self.forward(_feats_flip),
                 flip_indices=flip_indices,
                 shift_coords=test_cfg.get('shift_coords', True),
                 input_size=input_size)
@@ -186,7 +184,7 @@ class SimCC_IPR_Head(BaseHead):
 
             batch_coords = (_batch_coords + _batch_coords_flip) * 0.5
         else:
-            batch_coords, _, _ = self.forward(feats)  # (B, K, D)
+            batch_coords = self.forward(feats)  # (B, K, D)
             batch_coords[..., 2:] = batch_coords[..., 2:].sigmoid()
 
         batch_coords.unsqueeze_(dim=1)  # (B, N, K, D)
@@ -202,7 +200,7 @@ class SimCC_IPR_Head(BaseHead):
     ) -> dict:
         """Calculate losses from a batch of inputs and data samples."""
 
-        pred_outputs, pred_x, pred_y = self.forward(inputs)
+        pred_outputs = self.forward(inputs)
 
         keypoint_labels = torch.cat(
             [d.gt_instance_labels.keypoint_labels for d in batch_data_samples])
@@ -213,30 +211,10 @@ class SimCC_IPR_Head(BaseHead):
         pred_coords = pred_outputs[:, :, :2]
         pred_sigma = pred_outputs[:, :, 2:4]
 
-        gt_x = torch.cat([
-            d.gt_instance_labels.keypoint_x_labels for d in batch_data_samples
-        ],
-                         dim=0)
-        gt_y = torch.cat([
-            d.gt_instance_labels.keypoint_y_labels for d in batch_data_samples
-        ],
-                         dim=0)
-        keypoint_weights2 = torch.cat(
-            [
-                d.gt_instance_labels.keypoint_weights
-                for d in batch_data_samples
-            ],
-            dim=0,
-        )
-
-        pred_simcc = (pred_x, pred_y)
-        gt_simcc = (gt_x, gt_y)
-
         # calculate losses
         losses = dict()
-        loss = self.reg_loss(pred_coords, pred_sigma, keypoint_labels,
-                             keypoint_weights)
-        loss += self.simcc_loss(pred_simcc, gt_simcc, keypoint_weights2)
+        loss = self.loss_module(pred_coords, pred_sigma, keypoint_labels,
+                                keypoint_weights)
 
         losses.update(loss_kpt=loss)
 

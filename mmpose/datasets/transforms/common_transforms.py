@@ -980,6 +980,16 @@ class GenerateTarget(BaseTransform):
             results['keypoint_labels'] = keypoint_labels
             results['keypoint_weights'] = keypoint_weights
 
+        elif self.target_type == 'keypoint_xy_label+keypoint_label':
+            x_labels, y_labels, keypoint_labels, keypoint_weights = \
+                self.encoder.encode(
+                    keypoints=keypoints, keypoints_visible=keypoints_visible)
+
+            results['keypoint_x_labels'] = x_labels
+            results['keypoint_y_labels'] = y_labels
+            results['keypoint_labels'] = keypoint_labels
+            results['keypoint_weights'] = keypoint_weights
+
         elif self.target_type == 'multilevel_heatmap':
             heatmaps = []
             keypoint_weights = []
