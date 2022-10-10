@@ -82,8 +82,7 @@ train_pipeline = [
         rotate_factor=60),
     dict(type='TopdownAffine', input_size=codec['input_size']),
     dict(type='Cutout', radius_factor=0.2),
-    dict(
-        type='GenerateTarget', target_type='keypoint_xy_label', encoder=codec),
+    dict(type='GenerateTarget', target_type='keypoint_label', encoder=codec),
     dict(type='PackPoseInputs')
 ]
 val_pipeline = [
