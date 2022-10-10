@@ -208,10 +208,6 @@ class SimCCLabel(BaseKeypointCodec):
 
         return target_x, target_y, keypoint_weights
 
-    def _softmax(self, x):
-        t = np.exp(x)
-        return t / np.sum(t, axis=-1, keepdims=True)
-
     def _generate_gaussian(
         self,
         keypoints: np.ndarray,
