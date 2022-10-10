@@ -62,7 +62,10 @@ model = dict(
         simcc_split_ratio=codec['simcc_split_ratio'],
         deconv_out_channels=None,
         loss=dict(
-            type='KLDiscretLoss', use_target_weight=True, beta=codec['beta']),
+            type='KLDiscretLoss',
+            use_target_weight=True,
+            beta=codec['beta'],
+            use_softmax=True),
         decoder=codec),
     test_cfg=dict(flip_test=True, ))
 

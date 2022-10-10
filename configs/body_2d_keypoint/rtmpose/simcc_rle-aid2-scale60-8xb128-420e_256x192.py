@@ -53,8 +53,7 @@ model = dict(
         out_channels=17,
         input_size=codec['input_size'],
         in_featuremap_size=(6, 8),
-        simcc_split_ratio=codec['simcc_split_ratio'],
-        deconv_out_channels=None,
+        simcc_split_ratio=2,
         loss=dict(type='RLELoss', use_target_weight=True),
         decoder=codec),
     test_cfg=dict(flip_test=True, ))

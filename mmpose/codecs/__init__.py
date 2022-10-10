@@ -5,9 +5,11 @@ from .megvii_heatmap import MegviiHeatmap
 from .msra_heatmap import MSRAHeatmap
 from .regression_label import RegressionLabel
 from .simcc_label import SimCCLabel
+from .simcc_rle_label import SimCCRLELabel
 from .udp_heatmap import UDPHeatmap
 
 __all__ = [
     'MSRAHeatmap', 'MegviiHeatmap', 'UDPHeatmap', 'RegressionLabel',
-    'SimCCLabel', 'IntegralRegressionLabel', 'AssociativeEmbedding'
+    'SimCCLabel', 'IntegralRegressionLabel', 'AssociativeEmbedding',
+    'SimCCRLELabel'
 ]

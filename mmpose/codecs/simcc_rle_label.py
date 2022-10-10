@@ -11,7 +11,7 @@ from .simcc_label import SimCCLabel
 
 
 @KEYPOINT_CODECS.register_module()
-class IntegralRegressionLabel(BaseKeypointCodec):
+class SimCCRLELabel(BaseKeypointCodec):
     """Generate keypoint coordinates and normalized heatmaps. See the paper:
     `DSNT`_ by Nibali et al(2018).
 

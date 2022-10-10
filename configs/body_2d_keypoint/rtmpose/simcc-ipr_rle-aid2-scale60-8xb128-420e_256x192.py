@@ -27,7 +27,13 @@ param_scheduler = [
 auto_scale_lr = dict(base_batch_size=1024)
 
 # codec settings
-codec = dict(type='RegressionLabel', input_size=(192, 256))
+codec = dict(
+    type='SimCCRLELabel',
+    input_size=(192, 256),
+    sigma=(4.9, 5.66),
+    simcc_split_ratio=2.0,
+    normalize=False,
+    use_dark=True)
 
 # model settings
 model = dict(
@@ -48,13 +54,12 @@ model = dict(
             'mobilenetv2/mobilenetv2_coco_256x192-d1e58e7b_20200727.pth',
         )),
     head=dict(
-        type='SimCC_RLE_Head',
+        type='SimCC_IPR_Head',
         in_channels=320,
         out_channels=17,
         input_size=codec['input_size'],
         in_featuremap_size=(6, 8),
         simcc_split_ratio=codec['simcc_split_ratio'],
-        deconv_out_channels=None,
         reg_loss=dict(type='RLELoss', use_target_weight=True),
         simcc_loss=dict(type='KLDiscretLoss', use_target_weight=True),
         decoder=codec),
@@ -85,7 +90,9 @@ train_pipeline = [
     dict(type='TopdownAffine', input_size=codec['input_size']),
     dict(type='Cutout', radius_factor=0.2),
     dict(
-        type='GenerateTarget', target_type='keypoint_xy_label', encoder=codec),
+        type='GenerateTarget',
+        target_type='keypoint_xy_label+keypoint_label',
+        encoder=codec),
     dict(type='PackPoseInputs')
 ]
 val_pipeline = [
