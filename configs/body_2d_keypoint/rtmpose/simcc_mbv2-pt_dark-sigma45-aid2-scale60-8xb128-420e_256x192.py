@@ -33,8 +33,6 @@ codec = dict(
     sigma=(4.9, 5.66),
     simcc_split_ratio=2.0,
     normalize=False,
-    use_softmax=True,
-    beta=10.,
     use_dark=True)
 
 # model settings

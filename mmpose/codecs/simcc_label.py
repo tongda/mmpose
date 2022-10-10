@@ -44,8 +44,6 @@ class SimCCLabel(BaseKeypointCodec):
                  simcc_split_ratio: float = 2.0,
                  label_smooth_weight: float = 0.0,
                  normalize: bool = True,
-                 use_softmax: bool = False,
-                 beta: float = 1.0,
                  use_dark: bool = False) -> None:
         super().__init__()
 
@@ -58,8 +56,6 @@ class SimCCLabel(BaseKeypointCodec):
         self.simcc_split_ratio = simcc_split_ratio
         self.label_smooth_weight = label_smooth_weight
         self.normalize = normalize
-        self.use_softmax = use_softmax
-        self.beta = beta
         self.use_dark = use_dark
 
         if self.smoothing_type not in {'gaussian', 'standard'}:
@@ -266,9 +262,5 @@ class SimCCLabel(BaseKeypointCodec):
             norm_value = self.sigma * np.sqrt(np.pi * 2)
             target_x /= norm_value[0]
             target_y /= norm_value[1]
-
-        if self.use_softmax:
-            target_x = self._softmax(target_x * self.beta)
-            target_y = self._softmax(target_y * self.beta)
 
         return target_x, target_y, keypoint_weights
