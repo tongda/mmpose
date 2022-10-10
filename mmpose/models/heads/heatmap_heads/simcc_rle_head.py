@@ -110,6 +110,8 @@ class SimCC_RLE_Head(BaseHead):
         output_sigma = self.sigma_head(self.gap(feats).reshape(B, C))  # B, K*2
         output_sigma = output_sigma.reshape(B, -1, 2)
 
+        feats = self.final_layer(feats)
+
         # flatten the output heatmap
         x = torch.flatten(feats, 2)
 

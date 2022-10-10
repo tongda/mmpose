@@ -41,14 +41,17 @@ class SimCCRLELabel(BaseKeypointCodec):
                  simcc_split_ratio: float = 2.0,
                  label_smooth_weight: float = 0.0,
                  normalize: bool = True,
-                 use_softmax: bool = False,
-                 beta: float = 1.0,
                  use_dark: bool = False) -> None:
         super().__init__()
 
-        self.simcc_codec = SimCCLabel(input_size, smoothing_type, sigma,
-                                      simcc_split_ratio, label_smooth_weight,
-                                      normalize, use_softmax, beta, use_dark)
+        self.simcc_codec = SimCCLabel(
+            input_size=input_size,
+            smoothing_type=smoothing_type,
+            sigma=sigma,
+            simcc_split_ratio=simcc_split_ratio,
+            label_smooth_weight=label_smooth_weight,
+            normalize=normalize,
+            use_dark=use_dark)
         self.keypoint_codec = RegressionLabel(input_size)
         self.normalize = normalize
 

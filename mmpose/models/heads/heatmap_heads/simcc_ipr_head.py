@@ -112,17 +112,19 @@ class SimCC_IPR_Head(BaseHead):
         output_sigma = self.sigma_head(self.gap(feats).reshape(B, C))  # B, K*2
         output_sigma = output_sigma.reshape(B, -1, 2)
 
+        feats = self.final_layer(feats)
+
         # flatten the output heatmap
         x = torch.flatten(feats, 2)
 
         simcc_x = self.mlp_head_x(x)
         simcc_y = self.mlp_head_y(x)
 
-        simcc_x = F.softmax(simcc_x * self.beta, dim=-1)
-        pred_x = (simcc_x * self.linspace_x).sum(dim=-1, keepdim=True)
+        pred_x = F.softmax(simcc_x * self.beta, dim=-1)
+        pred_x = (pred_x * self.linspace_x).sum(dim=-1, keepdim=True)
 
-        simcc_y = F.softmax(simcc_y * self.beta, dim=-1)
-        pred_y = (simcc_y * self.linspace_y).sum(dim=-1, keepdim=True)
+        pred_y = F.softmax(simcc_y * self.beta, dim=-1)
+        pred_y = (pred_y * self.linspace_y).sum(dim=-1, keepdim=True)
 
         if self.debias:
             C_x = simcc_x.exp().sum(dim=-1, keepdim=True)

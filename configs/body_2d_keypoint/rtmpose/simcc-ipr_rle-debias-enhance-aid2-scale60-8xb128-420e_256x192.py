@@ -32,7 +32,7 @@ codec = dict(
     input_size=(192, 256),
     sigma=(4.9, 5.66),
     simcc_split_ratio=2.0,
-    normalize=True,
+    normalize=False,
     use_dark=True)
 
 # model settings
@@ -60,8 +60,14 @@ model = dict(
         input_size=codec['input_size'],
         in_featuremap_size=(6, 8),
         simcc_split_ratio=codec['simcc_split_ratio'],
+        debias=True,
+        beta=10,
         reg_loss=dict(type='RLELoss', use_target_weight=True),
-        simcc_loss=dict(type='KLDiscretLoss', use_target_weight=True),
+        simcc_loss=dict(
+            type='KLDiscretLoss',
+            use_target_weight=True,
+            beta=10,
+            use_softmax=True),
         decoder=codec),
     test_cfg=dict(flip_test=True, ))
 
