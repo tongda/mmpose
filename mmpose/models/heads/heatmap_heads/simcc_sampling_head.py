@@ -174,12 +174,12 @@ class SimCC_SamplingArgmax_Head(BaseHead):
         simcc_x = self._normalize(simcc_x, self.num_sample, self._tau)
         simcc_y = self._normalize(simcc_y, self.num_sample, self._tau)
 
-        B, K, W = simcc_x.shape
-        _, _, H = simcc_y.shape
+        B, K, S, W = simcc_x.shape
+        _, _, S, H = simcc_y.shape
 
         if self.training:
-            eps_x = torch.rand(B, K, W)
-            eps_y = torch.rand(B, K, H)
+            eps_x = torch.rand(B, K, S, W)
+            eps_y = torch.rand(B, K, S, H)
 
             if self.basis_type == 'uni':
                 eps_x -= 0.5
@@ -214,7 +214,7 @@ class SimCC_SamplingArgmax_Head(BaseHead):
                 simcc_x /= simcc_x.sum(dim=-1, keepdim=True)
                 simcc_y /= simcc_y.sum(dim=-1, keepdim=True)
 
-            pred_x = (simcc_x * w_x).sum(dim=-1, keepdim=True)
+            pred_x = (simcc_x * w_x).sum(dim=-1, keepdim=True)  # B, K, S, 1
             pred_y = (simcc_y * w_y).sum(dim=-1, keepdim=True)
 
         else:
@@ -228,9 +228,9 @@ class SimCC_SamplingArgmax_Head(BaseHead):
             C_y = simcc_y.exp().sum(dim=-1, keepdim=True)
             pred_y = C_x / (C_y - 1) * (pred_y - 1 / (2 * C_y))
 
-        pred = torch.cat([pred_x, pred_y, output_sigma], dim=-1)
+        pred = torch.cat([pred_x, pred_y], dim=-1)
 
-        return pred, simcc_x, simcc_y
+        return pred, output_sigma
 
     def predict(
         self,
@@ -271,7 +271,7 @@ class SimCC_SamplingArgmax_Head(BaseHead):
 
             _feats, _feats_flip = feats
 
-            _batch_coords, _, _ = self.forward(_feats)
+            _batch_coords, _ = self.forward(_feats)
             _batch_coords[..., 2:] = _batch_coords[..., 2:].sigmoid()
 
             _batch_coords_flip = flip_coordinates(
@@ -283,7 +283,7 @@ class SimCC_SamplingArgmax_Head(BaseHead):
 
             batch_coords = (_batch_coords + _batch_coords_flip) * 0.5
         else:
-            batch_coords, _, _ = self.forward(feats)  # (B, K, D)
+            batch_coords, _ = self.forward(feats)  # (B, K, D)
             batch_coords[..., 2:] = batch_coords[..., 2:].sigmoid()
 
         batch_coords.unsqueeze_(dim=1)  # (B, N, K, D)
@@ -299,7 +299,7 @@ class SimCC_SamplingArgmax_Head(BaseHead):
     ) -> dict:
         """Calculate losses from a batch of inputs and data samples."""
 
-        pred_outputs, _, _ = self.forward(inputs)
+        pred_coords, pred_sigma = self.forward(inputs)
 
         keypoint_labels = torch.cat(
             [d.gt_instance_labels.keypoint_labels for d in batch_data_samples])
@@ -307,14 +307,13 @@ class SimCC_SamplingArgmax_Head(BaseHead):
             d.gt_instance_labels.keypoint_weights for d in batch_data_samples
         ])
 
-        pred_coords = pred_outputs[:, :, :2]
-        pred_sigma = pred_outputs[:, :, 2:4]
-
         # calculate losses
         losses = dict()
-        loss = self.loss_module(pred_coords, pred_sigma, keypoint_labels,
-                                keypoint_weights)
-
+        loss = 0.
+        for i in range(pred_coords.size(2)):
+            loss += self.loss_module(pred_coords[:, :, i, :], pred_sigma,
+                                     keypoint_labels, keypoint_weights)
+        loss /= pred_coords.size(2)
         losses.update(loss_kpt=loss)
 
         # calculate accuracy
