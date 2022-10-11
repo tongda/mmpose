@@ -96,8 +96,8 @@ class SimCC_SamplingArgmax_Head(BaseHead):
         self.linspace_y = nn.Parameter(self.linspace_y, requires_grad=False)
 
         # Define rle
-        # self.gap = nn.AdaptiveAvgPool2d(1)
-        # self.sigma_head = nn.Linear(in_channels, out_channels * 2)
+        self.gap = nn.AdaptiveAvgPool2d(1)
+        self.sigma_head = nn.Linear(in_channels, out_channels * 2)
 
     def _normalize(self, feats, num_sample=1, tau=2):
 
@@ -229,7 +229,6 @@ class SimCC_SamplingArgmax_Head(BaseHead):
             pred_y = C_x / (C_y - 1) * (pred_y - 1 / (2 * C_y))
 
         pred = torch.cat([pred_x, pred_y, output_sigma], dim=-1)
-        # pred = torch.cat([pred_x, pred_y], dim=-1)
 
         return pred, simcc_x, simcc_y
 
