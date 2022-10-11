@@ -32,13 +32,13 @@ class SimCC_SamplingArgmax_Head(BaseHead):
         in_featuremap_size: Tuple[int, int],
         simcc_split_ratio: float = 2.0,
         num_sample: int = 1,
+        basis_type: str = 'tri',
         debias: bool = False,
         beta: float = 1.,
         input_transform: str = 'select',
         input_index: Union[int, Sequence[int]] = -1,
         align_corners: bool = False,
-        simcc_loss: ConfigType = dict(type='RLELoss', use_target_weight=True),
-        reg_loss: ConfigType = dict(type='RLELoss', use_target_weight=True),
+        loss: ConfigType = dict(type='RLELoss', use_target_weight=True),
         decoder: OptConfigType = None,
         init_cfg: OptConfigType = None,
     ):
@@ -56,12 +56,12 @@ class SimCC_SamplingArgmax_Head(BaseHead):
         self.align_corners = align_corners
         self.input_transform = input_transform
         self.input_index = input_index
+        self.basis_type = basis_type
         self.num_sample = num_sample
         self._tau = 2
         self.debias = debias
         self.beta = beta
-        self.reg_loss = MODELS.build(reg_loss)
-        self.simcc_loss = MODELS.build(simcc_loss)
+        self.loss_module = MODELS.build(loss)
         if decoder is not None:
             self.decoder = KEYPOINT_CODECS.build(decoder)
         else:
@@ -130,7 +130,7 @@ class SimCC_SamplingArgmax_Head(BaseHead):
         p = torch.where(tri < 0, tri + 1, -tri + 1)
         return tri, p
 
-    def retrive_p(self, hm, x):
+    def _retrive_p(self, hm, x):
         # hm: (B, K, W) or (B, K, S, W)
         # x:  (B, K, W) or (B, K, S, W)
         left_x = x.floor() + 1
@@ -153,10 +153,10 @@ class SimCC_SamplingArgmax_Head(BaseHead):
             pred_y (Tensor): 1d representation of y.
         """
         feats = self._transform_inputs(feats)
-        # B, C = feats.shape[:2]
+        B, C = feats.shape[:2]
 
-        # output_sigma = self.sigma_head(self.gap(feats).reshape(B, C))# B, K*2
-        # output_sigma = output_sigma.reshape(B, -1, 2)
+        output_sigma = self.sigma_head(self.gap(feats).reshape(B, C))  # B, K*2
+        output_sigma = output_sigma.reshape(B, -1, 2)
 
         feats = self.final_layer(feats)
 
@@ -174,11 +174,52 @@ class SimCC_SamplingArgmax_Head(BaseHead):
         simcc_x = self._normalize(simcc_x, self.num_sample, self._tau)
         simcc_y = self._normalize(simcc_y, self.num_sample, self._tau)
 
-        pred_x = F.softmax(simcc_x * self.beta, dim=-1)
-        pred_x = (pred_x * self.linspace_x).sum(dim=-1, keepdim=True)
+        B, K, W = simcc_x.shape
+        _, _, H = simcc_y.shape
 
-        pred_y = F.softmax(simcc_y * self.beta, dim=-1)
-        pred_y = (pred_y * self.linspace_y).sum(dim=-1, keepdim=True)
+        if self.training:
+            eps_x = torch.rand(B, K, W)
+            eps_y = torch.rand(B, K, H)
+
+            if self.basis_type == 'uni':
+                eps_x -= 0.5
+                eps_y -= 0.5
+
+                w_x = self.linspace_x + eps_x
+                w_y = self.linspace_y + eps_y
+
+            elif self.basis_type == 'gaussian':
+                eps_px = torch.exp(-eps_x**2 * 2)
+                eps_py = torch.exp(-eps_y**2 * 2)
+
+                simcc_x *= eps_px
+                simcc_y *= eps_py
+
+                simcc_x /= simcc_x.sum(dim=-1, keepdim=True)
+                simcc_y /= simcc_y.sum(dim=-1, keepdim=True)
+
+                w_x = self.linspace_x + eps_x
+                w_y = self.linspace_y + eps_y
+
+            elif self.basis_type == 'tri':
+                eps_x = self._uni2tri(eps_x)
+                eps_y = self._uni2tri(eps_y)
+
+                w_x = self.linspace_x + eps_x
+                w_y = self.linspace_y + eps_y
+
+                simcc_x = self._retrive_p(simcc_x, w_x)
+                simcc_y = self._retrive_p(simcc_y, w_y)
+
+                simcc_x /= simcc_x.sum(dim=-1, keepdim=True)
+                simcc_y /= simcc_y.sum(dim=-1, keepdim=True)
+
+            pred_x = (simcc_x * w_x).sum(dim=-1, keepdim=True)
+            pred_y = (simcc_y * w_y).sum(dim=-1, keepdim=True)
+
+        else:
+            pred_x = (simcc_x * self.linspace_x).sum(dim=-1, keepdim=True)
+            pred_y = (simcc_y * self.linspace_y).sum(dim=-1, keepdim=True)
 
         if self.debias:
             C_x = simcc_x.exp().sum(dim=-1, keepdim=True)
@@ -187,8 +228,8 @@ class SimCC_SamplingArgmax_Head(BaseHead):
             C_y = simcc_y.exp().sum(dim=-1, keepdim=True)
             pred_y = C_x / (C_y - 1) * (pred_y - 1 / (2 * C_y))
 
-        # pred = torch.cat([pred_x, pred_y, output_sigma], dim=-1)
-        pred = torch.cat([pred_x, pred_y], dim=-1)
+        pred = torch.cat([pred_x, pred_y, output_sigma], dim=-1)
+        # pred = torch.cat([pred_x, pred_y], dim=-1)
 
         return pred, simcc_x, simcc_y
 
@@ -259,7 +300,7 @@ class SimCC_SamplingArgmax_Head(BaseHead):
     ) -> dict:
         """Calculate losses from a batch of inputs and data samples."""
 
-        pred_outputs, pred_x, pred_y = self.forward(inputs)
+        pred_outputs, _, _ = self.forward(inputs)
 
         keypoint_labels = torch.cat(
             [d.gt_instance_labels.keypoint_labels for d in batch_data_samples])
@@ -270,30 +311,10 @@ class SimCC_SamplingArgmax_Head(BaseHead):
         pred_coords = pred_outputs[:, :, :2]
         pred_sigma = pred_outputs[:, :, 2:4]
 
-        gt_x = torch.cat([
-            d.gt_instance_labels.keypoint_x_labels for d in batch_data_samples
-        ],
-                         dim=0)
-        gt_y = torch.cat([
-            d.gt_instance_labels.keypoint_y_labels for d in batch_data_samples
-        ],
-                         dim=0)
-        keypoint_weights2 = torch.cat(
-            [
-                d.gt_instance_labels.keypoint_weights
-                for d in batch_data_samples
-            ],
-            dim=0,
-        )
-
-        pred_simcc = (pred_x, pred_y)
-        gt_simcc = (gt_x, gt_y)
-
         # calculate losses
         losses = dict()
-        loss = self.reg_loss(pred_coords, pred_sigma, keypoint_labels,
-                             keypoint_weights)
-        loss += self.simcc_loss(pred_simcc, gt_simcc, keypoint_weights2)
+        loss = self.loss_module(pred_coords, pred_sigma, keypoint_labels,
+                                keypoint_weights)
 
         losses.update(loss_kpt=loss)
 

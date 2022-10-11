@@ -35,7 +35,8 @@ class SimCC_IPR_Head(BaseHead):
         input_transform: str = 'select',
         input_index: Union[int, Sequence[int]] = -1,
         align_corners: bool = False,
-        simcc_loss: ConfigType = dict(type='RLELoss', use_target_weight=True),
+        simcc_loss: ConfigType = dict(
+            type='KLDiscretLoss', use_target_weight=True),
         reg_loss: ConfigType = dict(type='RLELoss', use_target_weight=True),
         decoder: OptConfigType = None,
         init_cfg: OptConfigType = None,
