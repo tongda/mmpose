@@ -109,6 +109,15 @@ class SimCC_SamplingArgmax_Head(BaseHead):
             log_eps = torch.log(-torch.log(eps))
             gumbel_feats = feats - log_eps / tau
             gumbel_feats = F.softmax(gumbel_feats, dim=3)
+
+            hard_gumbel_feats = gumbel_feats.detach()
+            hard_gumbel_feats = (torch.max(
+                hard_gumbel_feats, dim=-1,
+                keepdim=True)[0] == hard_gumbel_feats).int()
+
+            gumbel_feats = (hard_gumbel_feats -
+                            gumbel_feats).detach() + gumbel_feats
+
             return gumbel_feats
         else:
             feats = F.softmax(feats, dim=2)
@@ -174,10 +183,10 @@ class SimCC_SamplingArgmax_Head(BaseHead):
         simcc_x = self._normalize(simcc_x, self.num_sample, self._tau)
         simcc_y = self._normalize(simcc_y, self.num_sample, self._tau)
 
-        B, K, S, W = simcc_x.shape
-        _, _, S, H = simcc_y.shape
-
         if self.training:
+            B, K, S, W = simcc_x.shape
+            _, _, S, H = simcc_y.shape
+
             eps_x = torch.rand(B, K, S, W)
             eps_y = torch.rand(B, K, S, H)
 
@@ -202,8 +211,8 @@ class SimCC_SamplingArgmax_Head(BaseHead):
                 w_y = self.linspace_y + eps_y
 
             elif self.basis_type == 'tri':
-                eps_x = self._uni2tri(eps_x)
-                eps_y = self._uni2tri(eps_y)
+                eps_x, _ = self._uni2tri(eps_x)
+                eps_y, _ = self._uni2tri(eps_y)
 
                 w_x = self.linspace_x + eps_x
                 w_y = self.linspace_y + eps_y
