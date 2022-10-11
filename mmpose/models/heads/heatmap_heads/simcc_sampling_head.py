@@ -110,13 +110,13 @@ class SimCC_SamplingArgmax_Head(BaseHead):
             gumbel_feats = feats - log_eps / tau
             gumbel_feats = F.softmax(gumbel_feats, dim=3)
 
-            hard_gumbel_feats = gumbel_feats.detach()
-            hard_gumbel_feats = (torch.max(
-                hard_gumbel_feats, dim=-1,
-                keepdim=True)[0] == hard_gumbel_feats).int()
+            # hard_gumbel_feats = gumbel_feats.detach()
+            # hard_gumbel_feats = (torch.max(
+            #     hard_gumbel_feats, dim=-1,
+            #     keepdim=True)[0] == hard_gumbel_feats).float()
 
-            gumbel_feats = (hard_gumbel_feats -
-                            gumbel_feats).detach() + gumbel_feats
+            # gumbel_feats = (hard_gumbel_feats -
+            #                 gumbel_feats).detach() + gumbel_feats
 
             return gumbel_feats
         else:
@@ -187,8 +187,8 @@ class SimCC_SamplingArgmax_Head(BaseHead):
             B, K, S, W = simcc_x.shape
             _, _, S, H = simcc_y.shape
 
-            eps_x = torch.rand(B, K, S, W)
-            eps_y = torch.rand(B, K, S, H)
+            eps_x = torch.rand(B, K, S, W, device=feats.device)
+            eps_y = torch.rand(B, K, S, H, device=feats.device)
 
             if self.basis_type == 'uni':
                 eps_x -= 0.5
@@ -237,9 +237,11 @@ class SimCC_SamplingArgmax_Head(BaseHead):
             C_y = simcc_y.exp().sum(dim=-1, keepdim=True)
             pred_y = C_x / (C_y - 1) * (pred_y - 1 / (2 * C_y))
 
-        pred = torch.cat([pred_x, pred_y], dim=-1)
-
-        return pred, output_sigma
+        if self.training:
+            pred = torch.cat([pred_x, pred_y], dim=-1)
+            return pred, output_sigma
+        else:
+            return torch.cat([pred_x, pred_y, output_sigma], dim=-1)
 
     def predict(
         self,
@@ -280,11 +282,11 @@ class SimCC_SamplingArgmax_Head(BaseHead):
 
             _feats, _feats_flip = feats
 
-            _batch_coords, _ = self.forward(_feats)
+            _batch_coords = self.forward(_feats)
             _batch_coords[..., 2:] = _batch_coords[..., 2:].sigmoid()
 
             _batch_coords_flip = flip_coordinates(
-                self.forward(_feats_flip)[0],
+                self.forward(_feats_flip),
                 flip_indices=flip_indices,
                 shift_coords=test_cfg.get('shift_coords', True),
                 input_size=input_size)
@@ -319,21 +321,27 @@ class SimCC_SamplingArgmax_Head(BaseHead):
         # calculate losses
         losses = dict()
         loss = 0.
-        for i in range(pred_coords.size(2)):
+        avg_acc = 0.
+        S = pred_coords.shape[2]
+        for i in range(S):
             loss += self.loss_module(pred_coords[:, :, i, :], pred_sigma,
                                      keypoint_labels, keypoint_weights)
-        loss /= pred_coords.size(2)
+
+            # calculate accuracy
+            _, t_avg_acc, _ = keypoint_pck_accuracy(
+                pred=to_numpy(pred_coords[:, :, i, :]),
+                gt=to_numpy(keypoint_labels),
+                mask=to_numpy(keypoint_weights) > 0,
+                thr=0.05,
+                norm_factor=np.ones((pred_coords.size(0), 2),
+                                    dtype=np.float32))
+
+            avg_acc += t_avg_acc
+
+        loss /= S
         losses.update(loss_kpt=loss)
 
-        # calculate accuracy
-        _, avg_acc, _ = keypoint_pck_accuracy(
-            pred=to_numpy(pred_coords),
-            gt=to_numpy(keypoint_labels),
-            mask=to_numpy(keypoint_weights) > 0,
-            thr=0.05,
-            norm_factor=np.ones((pred_coords.size(0), 2), dtype=np.float32))
-
-        acc_pose = torch.tensor(avg_acc, device=keypoint_labels.device)
+        acc_pose = torch.tensor(avg_acc, device=keypoint_labels.device) / S
         losses.update(acc_pose=acc_pose)
 
         return losses
