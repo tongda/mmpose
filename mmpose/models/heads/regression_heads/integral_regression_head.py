@@ -172,8 +172,8 @@ class IntegralRegressionHead(BaseHead):
                 'multiple input features.')
 
         W, H = self.heatmap_size
-        self.linspace_x = torch.arange(0.0, 1.0 * W, 1).reshape(1, 1, 1, W) / W
-        self.linspace_y = torch.arange(0.0, 1.0 * H, 1).reshape(1, 1, H, 1) / H
+        self.linspace_x = torch.arange(0.0, 1.0 * W, 1).reshape(1, 1, 1, W)
+        self.linspace_y = torch.arange(0.0, 1.0 * H, 1).reshape(1, 1, H, 1)
 
         self.linspace_x = nn.Parameter(self.linspace_x, requires_grad=False)
         self.linspace_y = nn.Parameter(self.linspace_y, requires_grad=False)
@@ -222,11 +222,19 @@ class IntegralRegressionHead(BaseHead):
         pred_x = self._linear_expectation(heatmaps, self.linspace_x)
         pred_y = self._linear_expectation(heatmaps, self.linspace_y)
 
+        pred_x /= self.linspace_x.size(3)
+        pred_y /= self.linspace_y.size(2)
+
         if self.debias:
             B, N, H, W = feats.shape
             C = feats.reshape(B, N, H * W).exp().sum(dim=2).reshape(B, N, 1)
             pred_x = C / (C - 1) * (pred_x - 1 / (2 * C))
             pred_y = C / (C - 1) * (pred_y - 1 / (2 * C))
+
+            # wh = W * H
+            # C_wh = C - wh
+            # pred_x = C / C_wh * pred_x - wh*W / (2 * C_wh)
+            # pred_y = C / C_wh * pred_x - wh*H / (2 * C_wh)
 
         coords = torch.cat([pred_x, pred_y], dim=-1)
         return coords, heatmaps

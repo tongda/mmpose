@@ -89,8 +89,8 @@ class SimCC_SamplingArgmax_Head(BaseHead):
         self.mlp_head_x = nn.Linear(flatten_dims, W)
         self.mlp_head_y = nn.Linear(flatten_dims, H)
 
-        self.linspace_x = torch.arange(0.0, 1.0 * W, 1).reshape(1, 1, W) / W
-        self.linspace_y = torch.arange(0.0, 1.0 * H, 1).reshape(1, 1, H) / H
+        self.linspace_x = torch.arange(0.0, 1.0 * W, 1).reshape(1, 1, W)
+        self.linspace_y = torch.arange(0.0, 1.0 * H, 1).reshape(1, 1, H)
 
         self.linspace_x = nn.Parameter(self.linspace_x, requires_grad=False)
         self.linspace_y = nn.Parameter(self.linspace_y, requires_grad=False)
@@ -229,6 +229,9 @@ class SimCC_SamplingArgmax_Head(BaseHead):
         else:
             pred_x = (simcc_x * self.linspace_x).sum(dim=-1, keepdim=True)
             pred_y = (simcc_y * self.linspace_y).sum(dim=-1, keepdim=True)
+
+        pred_x /= self.linspace_x.size(2)
+        pred_y /= self.linspace_y.size(2)
 
         if self.debias:
             C_x = simcc_x.exp().sum(dim=-1, keepdim=True)
