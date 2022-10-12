@@ -61,6 +61,7 @@ model = dict(
         in_featuremap_size=(6, 8),
         simcc_split_ratio=codec['simcc_split_ratio'],
         deconv_out_channels=None,
+        use_mlp=True,
         loss=dict(
             type='KLDiscretLoss',
             use_target_weight=True,
@@ -92,11 +93,13 @@ train_pipeline = [
         scale_factor=[0.75, 1.25],
         rotate_factor=60),
     dict(type='TopdownAffine', input_size=codec['input_size']),
-    # dict(type='Cutout', radius_factor=0.2),
-    dict(
-        type='Albumentation',
-        transforms=[dict(type='GridDropout', p=1.0)],
-    ),
+    dict(type='Cutout', radius_factor=0.2),
+    # dict(
+    #     type='Albumentation',
+    #     transforms=[
+    #         dict(type='GridDropout', p=1.0)
+    #     ],
+    #     ),
     dict(
         type='GenerateTarget', target_type='keypoint_xy_label', encoder=codec),
     dict(type='PackPoseInputs')

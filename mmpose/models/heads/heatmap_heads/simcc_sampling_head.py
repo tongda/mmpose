@@ -216,7 +216,7 @@ class SimCC_SamplingArgmax_Head(BaseHead):
         if self.training:
             mh = MessageHub.get_current_instance()
             idx_epoch = mh.get_info('epoch')
-            self._tau = max(0.5, -idx_epoch * 3 / 50 + 2)
+            self._tau = max(0.5, -idx_epoch / 50 + 2)
 
         simcc_x = self._normalize(simcc_x, self.num_sample, self._tau)
         simcc_y = self._normalize(simcc_y, self.num_sample, self._tau)

@@ -32,6 +32,8 @@ class SimCC_IPR_Head(BaseHead):
         simcc_split_ratio: float = 2.0,
         debias: bool = False,
         beta: float = 1.,
+        use_mlp: bool = False,
+        softmax_norm: bool = False,
         input_transform: str = 'select',
         input_index: Union[int, Sequence[int]] = -1,
         align_corners: bool = False,
@@ -57,6 +59,8 @@ class SimCC_IPR_Head(BaseHead):
         self.input_index = input_index
         self.debias = debias
         self.beta = beta
+        self.use_mlp = use_mlp
+        self.softmax_norm = softmax_norm
         self.reg_loss = MODELS.build(reg_loss)
         self.simcc_loss = MODELS.build(simcc_loss)
         if decoder is not None:
@@ -83,8 +87,14 @@ class SimCC_IPR_Head(BaseHead):
         W = int(self.input_size[0] * self.simcc_split_ratio)
         H = int(self.input_size[1] * self.simcc_split_ratio)
 
-        self.mlp_head_x = nn.Linear(flatten_dims, W)
-        self.mlp_head_y = nn.Linear(flatten_dims, H)
+        if self.use_mlp:
+            hidden_dims = 512
+            self.mlp = nn.Linear(flatten_dims, hidden_dims)
+            self.mlp_head_x = nn.Linear(hidden_dims, W)
+            self.mlp_head_y = nn.Linear(hidden_dims, H)
+        else:
+            self.mlp_head_x = nn.Linear(flatten_dims, W)
+            self.mlp_head_y = nn.Linear(flatten_dims, H)
 
         self.linspace_x = torch.arange(0.0, 1.0 * W, 1).reshape(1, 1, W) / W
         self.linspace_y = torch.arange(0.0, 1.0 * H, 1).reshape(1, 1, H) / H
@@ -117,6 +127,9 @@ class SimCC_IPR_Head(BaseHead):
 
         # flatten the output heatmap
         x = torch.flatten(feats, 2)
+
+        if self.use_mlp:
+            x = self.mlp(x)
 
         simcc_x = self.mlp_head_x(x)
         simcc_y = self.mlp_head_y(x)

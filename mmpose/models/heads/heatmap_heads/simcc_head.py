@@ -87,6 +87,9 @@ class SimCCHead(BaseHead):
         input_size: Tuple[int, int],
         in_featuremap_size: Tuple[int, int],
         simcc_split_ratio: float = 2.0,
+        use_mlp: bool = False,
+        softmax_norm: bool = False,
+        beta: float = 1.,
         deconv_type: str = 'heatmap',
         deconv_out_channels: OptIntSeq = (256, 256, 256),
         deconv_kernel_sizes: OptIntSeq = (4, 4, 4),
@@ -118,6 +121,9 @@ class SimCCHead(BaseHead):
         self.input_size = input_size
         self.in_featuremap_size = in_featuremap_size
         self.simcc_split_ratio = simcc_split_ratio
+        self.use_mlp = use_mlp
+        self.softmax_norm = softmax_norm
+        self.beta = beta
         self.align_corners = align_corners
         self.input_transform = input_transform
         self.input_index = input_index
@@ -188,8 +194,15 @@ class SimCCHead(BaseHead):
         W = int(self.input_size[0] * self.simcc_split_ratio)
         H = int(self.input_size[1] * self.simcc_split_ratio)
 
-        self.mlp_head_x = nn.Linear(flatten_dims, W)
-        self.mlp_head_y = nn.Linear(flatten_dims, H)
+        if self.use_mlp:
+            hidden_dims = 256
+            self.mlp_x = nn.Linear(flatten_dims, hidden_dims)
+            self.mlp_y = nn.Linear(flatten_dims, hidden_dims)
+            self.mlp_head_x = nn.Linear(hidden_dims, W)
+            self.mlp_head_y = nn.Linear(hidden_dims, H)
+        else:
+            self.mlp_head_x = nn.Linear(flatten_dims, W)
+            self.mlp_head_y = nn.Linear(flatten_dims, H)
 
     def _make_deconv_head(self,
                           in_channels: Union[int, Sequence[int]],
@@ -257,8 +270,30 @@ class SimCCHead(BaseHead):
         # flatten the output heatmap
         x = torch.flatten(feats, 2)
 
-        pred_x = self.mlp_head_x(x)
-        pred_y = self.mlp_head_y(x)
+        if self.use_mlp:
+            feat_x = self.mlp_x(x)
+            feat_y = self.mlp_y(x)
+
+            if self.softmax_norm:
+                mlp_x_norm = torch.norm(self.mlp_head_x.weight, dim=-1)
+                norm_x = torch.norm(feat_x, dim=-1, keepdim=True)
+                feat_x = self.mlp_head_x(feat_x)
+                feat_x /= norm_x
+                feat_x /= mlp_x_norm.reshape(1, 1, -1)
+                feat_x *= self.beta
+
+                mlp_y_norm = torch.norm(self.mlp_head_y.weight, dim=-1)
+                norm_y = torch.norm(feat_y, dim=-1, keepdim=True)
+                feat_y = self.mlp_head_y(feat_y)
+                feat_y /= norm_y
+                feat_y /= mlp_y_norm.reshape(1, 1, -1)
+                feat_y *= self.beta
+            else:
+                pred_x = self.mlp_head_x(feat_x)
+                pred_y = self.mlp_head_y(feat_y)
+        else:
+            pred_x = self.mlp_head_x(x)
+            pred_y = self.mlp_head_y(x)
 
         return pred_x, pred_y
 
