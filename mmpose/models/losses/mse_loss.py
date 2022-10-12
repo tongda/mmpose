@@ -290,57 +290,20 @@ class CombinedTargetIOULoss(nn.Module):
             # classification loss
             loss += 0.5 * self.criterion(heatmap_pred, heatmap_gt)
 
-            bbox_gt = []
-            bbox_pred = []
-            for x in range(W):
-                for y in range(H):
-                    if heatmap_gt[:, x * H + y] == 0:
-                        continue
-                    x1 = torch.ones(batch_size) * x
-                    y1 = torch.ones(batch_size) * y
-                    gt_x2 = x1 + offset_x_gt[:, x * H + y]
-                    gt_y2 = y1 + offset_y_gt[:, x * H + y]
+            mask = heatmap_gt.bool()
 
-                    mask_x = gt_x2 > x1
-                    mask_y = gt_y2 > y1
+            gt_x2 = torch.abs(offset_x_gt[mask]).reshape(-1, 1)
+            gt_y2 = torch.abs(offset_y_gt[mask]).reshape(-1, 1)
 
-                    t_bbox_gt = torch.stack(
-                        [x1[mask_x], y1[mask_y], gt_x2[mask_x], gt_y2[mask_y]],
-                        dim=-1)
-                    bbox_gt.append(t_bbox_gt)
-                    t_bbox_gt = torch.stack([
-                        gt_x2[1 - mask_x], gt_y2[1 - mask_y], x1[1 - mask_x],
-                        y1[1 - mask_y]
-                    ],
-                                            dim=-1)
-                    bbox_gt.append(t_bbox_gt)
+            x1 = torch.zeros_like(gt_x2)
+            y1 = torch.zeros_like(gt_y2)
 
-                    pred_x2 = x1 + offset_x_pred[:, x * H + y]
-                    pred_y2 = y1 + offset_y_pred[:, x * H + y]
+            pred_x2 = torch.abs(offset_x_pred[mask]).reshape(-1, 1)
+            pred_y2 = torch.abs(offset_y_pred[mask]).reshape(-1, 1)
 
-                    mask_x = pred_x2 > x1
-                    mask_y = pred_y2 > y1
+            bbox_gt = torch.cat([x1, y1, gt_x2, gt_y2], dim=-1)
+            bbox_pred = torch.cat([x1, y1, pred_x2, pred_y2], dim=-1)
 
-                    t_bbox_pred = torch.stack([
-                        x1[mask_x], y1[mask_y], pred_x2[mask_x],
-                        pred_y2[mask_y]
-                    ],
-                                              dim=-1)
-                    bbox_pred.append(t_bbox_pred)
-
-                    t_bbox_pred = torch.stack([
-                        pred_x2[1 - mask_x], pred_y2[1 - mask_y],
-                        x1[1 - mask_x], y1[1 - mask_y]
-                    ],
-                                              dim=-1)
-                    bbox_pred.append(t_bbox_pred)
-
-                    # B, 4
-                    # t_bbox_gt = torch.stack([x1, y1, gt_x2, gt_y2], dim=-1)
-                    # t_bbox_pred = torch.stack([x1, y1, pred_x2, pred_y2],
-                    #                           dim=-1)
-                    # bbox_gt.append(t_bbox_gt)
-                    # bbox_pred.append(t_bbox_pred)
             bbox_gt = torch.cat(bbox_gt, dim=0).to(output.device)
             bbox_pred = torch.cat(bbox_pred, dim=0).to(output.device)
             loss += self.iou_loss(bbox_pred, bbox_gt)

@@ -222,19 +222,22 @@ class IntegralRegressionHead(BaseHead):
         pred_x = self._linear_expectation(heatmaps, self.linspace_x)
         pred_y = self._linear_expectation(heatmaps, self.linspace_y)
 
-        pred_x /= self.linspace_x.size(3)
-        pred_y /= self.linspace_y.size(2)
+        # pred_x /= self.linspace_x.size(3)
+        # pred_y /= self.linspace_y.size(2)
 
         if self.debias:
             B, N, H, W = feats.shape
             C = feats.reshape(B, N, H * W).exp().sum(dim=2).reshape(B, N, 1)
-            pred_x = C / (C - 1) * (pred_x - 1 / (2 * C))
-            pred_y = C / (C - 1) * (pred_y - 1 / (2 * C))
+            # pred_x = C / (C - 1) * (pred_x - 1 / (2 * C))
+            # pred_y = C / (C - 1) * (pred_y - 1 / (2 * C))
 
-            # wh = W * H
-            # C_wh = C - wh
-            # pred_x = C / C_wh * pred_x - wh*W / (2 * C_wh)
-            # pred_y = C / C_wh * pred_x - wh*H / (2 * C_wh)
+            wh = W * H
+            C_wh = C - wh
+            pred_x = C / C_wh * pred_x - wh * W / (2 * C_wh)
+            pred_y = C / C_wh * pred_x - wh * H / (2 * C_wh)
+
+        pred_x /= self.linspace_x.size(3)
+        pred_y /= self.linspace_y.size(2)
 
         coords = torch.cat([pred_x, pred_y], dim=-1)
         return coords, heatmaps

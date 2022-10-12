@@ -19,6 +19,43 @@ from ..base_head import BaseHead
 OptIntSeq = Optional[Sequence[int]]
 
 
+class ClipIntegral(torch.autograd.Function):
+    """Clip integral grad."""
+    AMPLITUDE = 2
+
+    @staticmethod
+    def forward(ctx, input, weight):
+        assert isinstance(
+            input,
+            torch.Tensor), 'ClipIntegral only takes input as torch.Tensor'
+        input_size = input.size()
+        ctx.input_size = input_size
+        output = input.mul(weight)
+        ctx.save_for_backward(input, weight, output)
+
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        # weight: (W)
+        # grad_output: (B, K, N, W) or (B, K, W)
+        # output: (B, K, N, W) or (B, K, W)
+        input, weight, output = ctx.saved_tensors
+        output_coord = output.sum(dim=-1, keepdim=True)
+        # weight = weight[None, None, :].repeat(
+        #     output_coord.shape[0], output_coord.shape[1], 1)
+        weight = weight.expand_as(output)
+
+        weight_mask = torch.ones(
+            weight.shape,
+            dtype=grad_output.dtype,
+            layout=grad_output.layout,
+            device=grad_output.device)
+        weight_mask[weight < output_coord] = -1
+        weight_mask *= ClipIntegral.AMPLITUDE
+        return grad_output.mul(weight_mask), grad_output.mul(input)
+
+
 @MODELS.register_module()
 class SimCC_SamplingArgmax_Head(BaseHead):
 
@@ -58,6 +95,7 @@ class SimCC_SamplingArgmax_Head(BaseHead):
         self.input_index = input_index
         self.basis_type = basis_type
         self.num_sample = num_sample
+        self.integral = ClipIntegral.apply
         self._tau = 2
         self.debias = debias
         self.beta = beta
@@ -223,8 +261,10 @@ class SimCC_SamplingArgmax_Head(BaseHead):
                 simcc_x /= simcc_x.sum(dim=-1, keepdim=True)
                 simcc_y /= simcc_y.sum(dim=-1, keepdim=True)
 
-            pred_x = (simcc_x * w_x).sum(dim=-1, keepdim=True)  # B, K, S, 1
-            pred_y = (simcc_y * w_y).sum(dim=-1, keepdim=True)
+            # pred_x = (simcc_x * w_x).sum(dim=-1, keepdim=True)  # B, K, S, 1
+            # pred_y = (simcc_y * w_y).sum(dim=-1, keepdim=True)
+            pred_x = self.integral(simcc_x, w_x).sum(dim=-1, keepdim=True)
+            pred_y = self.integral(simcc_y, w_y).sum(dim=-1, keepdim=True)
 
         else:
             pred_x = (simcc_x * self.linspace_x).sum(dim=-1, keepdim=True)
