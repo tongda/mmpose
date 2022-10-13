@@ -34,8 +34,8 @@ class GAU(nn.Module):
         self.e = int(hidden_size * expansion_factor)
         self.w = nn.Parameter(
             torch.rand([2 * max_seq_length - 1], dtype=torch.float))
-        self.a = nn.Parameter(torch.rand([1, self.s], dtype=torch.float))
-        self.b = nn.Parameter(torch.rand([1, self.s], dtype=torch.float))
+        # self.a = nn.Parameter(torch.rand([1, self.s], dtype=torch.float))
+        # self.b = nn.Parameter(torch.rand([1, self.s], dtype=torch.float))
         self.o = nn.Linear(self.e, hidden_size)
         self.uv = nn.Linear(hidden_size, 2 * self.e + self.s)
         self.ln = nn.LayerNorm(hidden_size, eps=eps)
