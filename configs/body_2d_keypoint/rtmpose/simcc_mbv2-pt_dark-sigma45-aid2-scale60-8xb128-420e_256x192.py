@@ -84,6 +84,10 @@ file_client_args = dict(
 # pipelines
 train_pipeline = [
     dict(type='LoadImage', file_client_args=file_client_args),
+    dict(
+        type='Albumentation',
+        transforms=[dict(type='GridDropout', p=1.0)],
+    ),
     dict(type='GetBBoxCenterScale'),
     dict(type='RandomFlip', direction='horizontal'),
     dict(type='RandomHalfBody'),
@@ -93,10 +97,6 @@ train_pipeline = [
         rotate_factor=60),
     dict(type='TopdownAffine', input_size=codec['input_size']),
     # dict(type='Cutout', radius_factor=0.2),
-    dict(
-        type='Albumentation',
-        transforms=[dict(type='GridDropout', p=1.0)],
-    ),
     dict(
         type='GenerateTarget', target_type='keypoint_xy_label', encoder=codec),
     dict(type='PackPoseInputs')
