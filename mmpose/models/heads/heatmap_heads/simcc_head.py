@@ -291,7 +291,7 @@ class SimCCHead(BaseHead):
         H = int(self.input_size[1] * self.simcc_split_ratio)
 
         if self.use_mlp:
-            hidden_dims = 256
+            hidden_dims = 512
             self.mlp_x = nn.Linear(flatten_dims, hidden_dims)
             self.mlp_y = nn.Linear(flatten_dims, hidden_dims)
             self.mlp_head_x = nn.Linear(hidden_dims, W)
