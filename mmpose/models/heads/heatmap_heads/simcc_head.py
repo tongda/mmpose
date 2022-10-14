@@ -1,4 +1,5 @@
 # Copyright (c) OpenMMLab. All rights reserved.
+import math
 from typing import Optional, Sequence, Tuple, Union
 
 import torch
@@ -41,6 +42,9 @@ class GAU(nn.Module):
         self.ln = nn.LayerNorm(hidden_size, eps=eps)
         nn.init.xavier_uniform_(self.uv.weight)
         self.act_fn = nn.SiLU(True)
+
+        self.log_512 = math.log(512)
+        self.sqrt_s = math.sqrt(self.s)
 
     def rope(self, x, dim):
         """
@@ -106,7 +110,10 @@ class GAU(nn.Module):
 
         bias = self.rel_pos_bias(
             self.max_seq_length)[:, :seq_length, :seq_length]
-        kernel = torch.square(F.relu(qk + bias))
+        # kernel = torch.square(F.relu(qk + bias))
+        kernel = F.softmax(
+            self.log_512 * self.max_seq_length * qk / self.sqrt_s + bias,
+            dim=-1)
         x = u * torch.einsum('bnm, bme->bne', kernel, v)
         x = self.o(x)
         return x + shortcut
@@ -291,7 +298,7 @@ class SimCCHead(BaseHead):
         H = int(self.input_size[1] * self.simcc_split_ratio)
 
         if self.use_mlp:
-            hidden_dims = 512
+            hidden_dims = 128
             self.mlp_x = nn.Linear(flatten_dims, hidden_dims)
             self.mlp_y = nn.Linear(flatten_dims, hidden_dims)
             self.mlp_head_x = nn.Linear(hidden_dims, W)

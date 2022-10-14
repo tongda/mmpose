@@ -1,5 +1,6 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import copy
+import random
 
 import torch.nn as nn
 import torch.utils.checkpoint as cp
@@ -203,22 +204,22 @@ class MobileNetV2(BaseBackbone):
             self.add_module(layer_name, inverted_res_layer)
             self.layers.append(layer_name)
 
-        if widen_factor > 1.0:
-            self.out_channel = int(1280 * widen_factor)
-        else:
-            self.out_channel = 1280
+        # if widen_factor > 1.0:
+        #     self.out_channel = int(1280 * widen_factor)
+        # else:
+        #     self.out_channel = 1280
 
-        layer = ConvModule(
-            in_channels=self.in_channels,
-            out_channels=self.out_channel,
-            kernel_size=1,
-            stride=1,
-            padding=0,
-            conv_cfg=self.conv_cfg,
-            norm_cfg=self.norm_cfg,
-            act_cfg=self.act_cfg)
-        self.add_module('conv2', layer)
-        self.layers.append('conv2')
+        # layer = ConvModule(
+        #     in_channels=self.in_channels,
+        #     out_channels=self.out_channel,
+        #     kernel_size=1,
+        #     stride=1,
+        #     padding=0,
+        #     conv_cfg=self.conv_cfg,
+        #     norm_cfg=self.norm_cfg,
+        #     act_cfg=self.act_cfg)
+        # self.add_module('conv2', layer)
+        # self.layers.append('conv2')
 
     def make_layer(self, out_channels, num_blocks, stride, expand_ratio):
         """Stack InvertedResidual blocks to build a layer for MobileNetV2.
@@ -248,6 +249,17 @@ class MobileNetV2(BaseBackbone):
 
         return nn.Sequential(*layers)
 
+    def _waveblock(self, x, idx, ratio=0.3):
+        h = x.shape[idx]
+        rh = round(ratio * h)
+        sx = random.randint(0, h - rh)
+        mask = (x.new_ones(x.size())) * 1.5
+        if idx == -2:
+            mask[:, :, sx:sx + rh, :] = 1
+        else:
+            mask[:, :, :, sx:sx + rh] = 1
+        return x * mask
+
     def forward(self, x):
         x = self.conv1(x)
 
@@ -255,6 +267,13 @@ class MobileNetV2(BaseBackbone):
         for i, layer_name in enumerate(self.layers):
             layer = getattr(self, layer_name)
             x = layer(x)
+
+            if self.training and i in [4, 5]:
+                if random.random() > 0.5:
+                    x = self._waveblock(x, -2)  # h wave
+                else:
+                    x = self._waveblock(x, -1)  # w wave
+
             if i in self.out_indices:
                 outs.append(x)
 
