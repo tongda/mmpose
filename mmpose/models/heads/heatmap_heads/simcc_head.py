@@ -43,8 +43,8 @@ class GAU(nn.Module):
         nn.init.xavier_uniform_(self.uv.weight)
         self.act_fn = nn.SiLU(True)
 
-        self.log_512 = math.log(512)
-        self.sqrt_s = math.sqrt(self.s)
+        self.log_n = math.log(max_seq_length)
+        self.sqrt_s = math.sqrt(s)
 
     def rope(self, x, dim):
         """
@@ -110,10 +110,9 @@ class GAU(nn.Module):
 
         bias = self.rel_pos_bias(
             self.max_seq_length)[:, :seq_length, :seq_length]
-        # kernel = torch.square(F.relu(qk + bias))
+        # kernel = torch.square(F.relu(qk / self.sqrt_s + bias))
         kernel = F.softmax(
-            self.log_512 * self.max_seq_length * qk / self.sqrt_s + bias,
-            dim=-1)
+            self.log_n * self.max_seq_length * qk / self.sqrt_s + bias, dim=-1)
         x = u * torch.einsum('bnm, bme->bne', kernel, v)
         x = self.o(x)
         return x + shortcut
