@@ -23,10 +23,10 @@ class GAU(nn.Module):
     def __init__(self,
                  max_seq_length,
                  hidden_size,
+                 output_size,
                  expansion_factor=2,
                  s=128,
-                 eps=1e-5,
-                 use_shortcut=True):
+                 eps=1e-5):
 
         super(GAU, self).__init__()
         self.s = s
@@ -38,12 +38,12 @@ class GAU(nn.Module):
             torch.rand([2 * max_seq_length - 1], dtype=torch.float))
         # self.a = nn.Parameter(torch.rand([1, self.s], dtype=torch.float))
         # self.b = nn.Parameter(torch.rand([1, self.s], dtype=torch.float))
-        self.o = nn.Linear(self.e, hidden_size)
+        self.o = nn.Linear(self.e, output_size)
         self.uv = nn.Linear(hidden_size, 2 * self.e + self.s)
         self.ln = nn.LayerNorm(hidden_size, eps=eps)
         nn.init.xavier_uniform_(self.uv.weight)
         self.act_fn = nn.SiLU(True)
-        self.use_shortcut = use_shortcut
+        self.use_shortcut = hidden_size == output_size
 
         # self.log_n = math.log(max_seq_length)
         self.sqrt_s = math.sqrt(s)
@@ -124,7 +124,7 @@ class GAU(nn.Module):
 
 
 @MODELS.register_module()
-class SimCCHead(BaseHead):
+class SimCC_GAU_Head(BaseHead):
     """Top-down heatmap head introduced in `SimCC`_ by Li et al (2022). The
     head is composed of a few deconvolutional layers followed by a fully-
     connected layer to generate 1d representation from low-resolution feature
@@ -195,7 +195,6 @@ class SimCCHead(BaseHead):
         in_featuremap_size: Tuple[int, int],
         simcc_split_ratio: float = 2.0,
         use_mlp: bool = False,
-        use_gau: bool = False,
         softmax_norm: bool = False,
         deconv_type: str = 'heatmap',
         deconv_out_channels: OptIntSeq = (256, 256, 256),
@@ -229,7 +228,6 @@ class SimCCHead(BaseHead):
         self.in_featuremap_size = in_featuremap_size
         self.simcc_split_ratio = simcc_split_ratio
         self.use_mlp = use_mlp
-        self.use_gau = use_gau
         self.softmax_norm = softmax_norm
         self.align_corners = align_corners
         self.input_transform = input_transform
@@ -301,22 +299,19 @@ class SimCCHead(BaseHead):
         W = int(self.input_size[0] * self.simcc_split_ratio)
         H = int(self.input_size[1] * self.simcc_split_ratio)
 
+        hidden_dims = 256
+
         if self.use_mlp:
-            hidden_dims = 256
-            self.mlp_x = nn.Linear(flatten_dims, hidden_dims)
-            self.mlp_y = nn.Linear(flatten_dims, hidden_dims)
-            self.mlp_head_x = nn.Linear(hidden_dims, W)
-            self.mlp_head_y = nn.Linear(hidden_dims, H)
+            # self.mlp_x = nn.Linear(flatten_dims, hidden_dims)
+            # self.mlp_y = nn.Linear(flatten_dims, hidden_dims)
+            self.mlp_x = GAU(self.out_channels, flatten_dims, hidden_dims)
+            self.mlp_y = GAU(self.out_channels, flatten_dims, hidden_dims)
+            self.mlp_head_x = GAU(self.out_channels, hidden_dims, W)
+            self.mlp_head_y = GAU(self.out_channels, hidden_dims, H)
 
-            if self.use_gau:
-                self.gau_x = GAU(self.out_channels, hidden_dims)
-                self.gau_y = GAU(self.out_channels, hidden_dims)
-
-                self.gau_w = GAU(self.out_channels, W)
-                self.gau_h = GAU(self.out_channels, H)
         else:
-            self.mlp_head_x = nn.Linear(flatten_dims, W)
-            self.mlp_head_y = nn.Linear(flatten_dims, H)
+            self.mlp_head_x = GAU(self.out_channels, flatten_dims, W)
+            self.mlp_head_y = GAU(self.out_channels, flatten_dims, H)
 
     def _make_deconv_head(self,
                           in_channels: Union[int, Sequence[int]],
@@ -388,10 +383,6 @@ class SimCCHead(BaseHead):
             feat_x = self.mlp_x(x)
             feat_y = self.mlp_y(x)
 
-            if self.use_gau:
-                feat_x = self.gau_x(feat_x)
-                feat_y = self.gau_y(feat_y)
-
             if self.softmax_norm:
                 mlp_x_norm = torch.norm(self.mlp_head_x.weight, dim=-1)
                 norm_x = torch.norm(feat_x, dim=-1, keepdim=True)
@@ -410,10 +401,6 @@ class SimCCHead(BaseHead):
         else:
             pred_x = self.mlp_head_x(x)
             pred_y = self.mlp_head_y(x)
-
-        if self.use_gau:
-            pred_x = self.gau_w(pred_x)
-            pred_y = self.gau_h(pred_y)
 
         return pred_x, pred_y
 

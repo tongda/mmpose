@@ -54,14 +54,15 @@ model = dict(
             'mobilenetv2/mobilenetv2_coco_256x192-d1e58e7b_20200727.pth',
         )),
     head=dict(
-        type='SimCCHead',
+        type='SimCC_GAU_Head',
         in_channels=320,
         out_channels=17,
         input_size=codec['input_size'],
         in_featuremap_size=(6, 8),
         simcc_split_ratio=codec['simcc_split_ratio'],
         deconv_out_channels=None,
-        use_mlp=True,
+        use_mlp=False,
+        softmax_norm=False,
         loss=dict(
             type='KLDiscretLoss',
             use_target_weight=True,
@@ -93,21 +94,21 @@ train_pipeline = [
         scale_factor=[0.75, 1.25],
         rotate_factor=60),
     dict(type='TopdownAffine', input_size=codec['input_size']),
-    # dict(type='Cutout', radius_factor=0.2),
-    dict(
-        type='Albumentation',
-        transforms=[
-            dict(
-                type='CoarseDropout',
-                p=1.0,
-                max_holes=1,
-                max_height=codec['input_size'][1] * 0.4,
-                max_width=codec['input_size'][0] * 0.4,
-                min_height=codec['input_size'][1] * 0.2,
-                min_width=codec['input_size'][0] * 0.2,
-            )
-        ],
-    ),
+    dict(type='Cutout', radius_factor=0.2),
+    # dict(
+    #     type='Albumentation',
+    #     transforms=[
+    #         dict(
+    #             type='CoarseDropout',
+    #             p=1.0,
+    #             max_holes=1,
+    #             max_height=codec['input_size'][1]*0.4,
+    #             max_width=codec['input_size'][0]*0.4,
+    #             min_height=codec['input_size'][1]*0.2,
+    #             min_width=codec['input_size'][0]*0.2,
+    #         )
+    #     ],
+    #     ),
     dict(
         type='GenerateTarget', target_type='keypoint_xy_label', encoder=codec),
     dict(type='PackPoseInputs')
