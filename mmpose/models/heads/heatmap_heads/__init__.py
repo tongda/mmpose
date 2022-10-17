@@ -7,6 +7,7 @@ from .simcc_gap_fc_head import SimCC_GAP_FC
 from .simcc_gau_head import SimCC_GAU_Head
 from .simcc_head import SimCCHead
 from .simcc_ipr_head import SimCC_IPR_Head
+from .simcc_offset_head import SimCC_Offset_Head
 from .simcc_rle_head import SimCC_RLE_Head
 from .simcc_sampling_head import SimCC_SamplingArgmax_Head
 from .vipnas_head import ViPNASHead
@@ -14,5 +15,6 @@ from .vipnas_head import ViPNASHead
 __all__ = [
     'HeatmapHead', 'CPMHead', 'MSPNHead', 'ViPNASHead', 'SimCCHead',
     'SimCC_RLE_Head', 'SimCC_GAP_FC', 'SimCC_IPR_Head',
-    'SimCC_SamplingArgmax_Head', 'SimCC_GAU_Head', 'GAU_Head'
+    'SimCC_SamplingArgmax_Head', 'SimCC_GAU_Head', 'GAU_Head',
+    'SimCC_Offset_Head'
 ]
