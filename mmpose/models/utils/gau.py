@@ -15,6 +15,7 @@ class GAU(nn.Module):
                  expansion_factor=2,
                  s=128,
                  eps=1e-5,
+                 use_dropout=False,
                  softmax_att=False):
 
         super(GAU, self).__init__()
@@ -37,6 +38,9 @@ class GAU(nn.Module):
         if softmax_att:
             self.log_n = math.log(max_seq_length)
         self.sqrt_s = math.sqrt(s)
+        self.use_dropout = use_dropout
+        if use_dropout:
+            self.dropout = nn.Dropout(0.2)
 
     def rope(self, x, dim):
         """
@@ -112,7 +116,12 @@ class GAU(nn.Module):
             kernel = torch.square(F.relu(qk / self.sqrt_s + bias))
 
         x = u * torch.einsum('bnm, bme->bne', kernel, v)
+
+        if self.use_dropout:
+            x = self.dropout(x)
+
         x = self.o(x)
+
         if self.use_shortcut:
             x += shortcut
         return x

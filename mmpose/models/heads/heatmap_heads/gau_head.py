@@ -201,14 +201,16 @@ class GAU_Head(BaseHead):
         self.global_gau = nn.Sequential(*global_gau)
 
         gau_x, gau_y = [], []
-        for _ in range(num_split):
-            gau_x.append(GAU(self.out_channels, hidden_dims, hidden_dims))
-            gau_y.append(GAU(self.out_channels, hidden_dims, hidden_dims))
+        for i in range(num_split):
+            if i == num_split - 1:
+                gau_x.append(GAU(self.out_channels, hidden_dims, W))
+                gau_y.append(GAU(self.out_channels, hidden_dims, H))
+            else:
+                gau_x.append(GAU(self.out_channels, hidden_dims, hidden_dims))
+                gau_y.append(GAU(self.out_channels, hidden_dims, hidden_dims))
+
         self.gau_x = nn.Sequential(*gau_x)
         self.gau_y = nn.Sequential(*gau_y)
-
-        self.mlp_head_x = nn.Linear(hidden_dims, W)
-        self.mlp_head_y = nn.Linear(hidden_dims, H)
 
     def _make_deconv_head(self,
                           in_channels: Union[int, Sequence[int]],
@@ -280,9 +282,6 @@ class GAU_Head(BaseHead):
 
         pred_x = self.gau_x(x)
         pred_y = self.gau_y(x)
-
-        pred_x = self.mlp_head_x(pred_x)
-        pred_y = self.mlp_head_y(pred_y)
 
         return pred_x, pred_y
 

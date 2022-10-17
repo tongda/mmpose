@@ -8,6 +8,7 @@ from mmcv.cnn import build_conv_layer
 from torch import Tensor, nn
 
 from mmpose.evaluation.functional import keypoint_pck_accuracy
+from mmpose.models.utils.gilbert2d import gilbert2d
 from mmpose.models.utils.tta import flip_coordinates
 from mmpose.registry import KEYPOINT_CODECS, MODELS
 from mmpose.utils.tensor_utils import to_numpy
@@ -31,10 +32,10 @@ class SimCC_Proposal_Head(BaseHead):
         input_size: Tuple[int, int],
         in_featuremap_size: Tuple[int, int],
         simcc_split_ratio: float = 2.0,
-        debias: bool = False,
-        beta: float = 1.,
-        use_mlp: bool = False,
-        softmax_norm: bool = False,
+        hidden_dims: int = 256,
+        num_global: int = 1,
+        num_split: int = 1,
+        use_hilbert_flatten: bool = False,
         input_transform: str = 'select',
         input_index: Union[int, Sequence[int]] = -1,
         align_corners: bool = False,
@@ -58,10 +59,10 @@ class SimCC_Proposal_Head(BaseHead):
         self.align_corners = align_corners
         self.input_transform = input_transform
         self.input_index = input_index
-        self.debias = debias
-        self.beta = beta
-        self.use_mlp = use_mlp
-        self.softmax_norm = softmax_norm
+        self.hidden_dims = hidden_dims
+        self.use_hilbert_flatten = use_hilbert_flatten
+        self.num_global = num_global
+        self.num_split = num_split
         self.reg_loss = MODELS.build(reg_loss)
         self.simcc_loss = MODELS.build(simcc_loss)
         if decoder is not None:
@@ -85,11 +86,35 @@ class SimCC_Proposal_Head(BaseHead):
         # Define SimCC layers
         flatten_dims = self.in_featuremap_size[0] * self.in_featuremap_size[1]
 
+        if use_hilbert_flatten:
+            hilbert_mapping = []
+            for x, y in gilbert2d(in_featuremap_size[0],
+                                  in_featuremap_size[1]):
+                hilbert_mapping.append([x * in_featuremap_size[1] + y])
+            self.hilbert_mapping = hilbert_mapping
+
         W = int(self.input_size[0] * self.simcc_split_ratio)
         H = int(self.input_size[1] * self.simcc_split_ratio)
 
-        self.mlp_head_x = GAUplus(self.out_channels, flatten_dims, W)
-        self.mlp_head_y = GAUplus(self.out_channels, flatten_dims, H)
+        global_gau = [GAUplus(self.out_channels, flatten_dims, hidden_dims)]
+        for _ in range(num_global - 1):
+            global_gau.append(
+                GAUplus(self.out_channels, hidden_dims, hidden_dims))
+        self.global_gau = nn.Sequential(*global_gau)
+
+        gau_x, gau_y = [], []
+        for i in range(num_split):
+            if i == num_split - 1:
+                gau_x.append(GAUplus(self.out_channels, hidden_dims, W))
+                gau_y.append(GAUplus(self.out_channels, hidden_dims, H))
+            else:
+                gau_x.append(
+                    GAUplus(self.out_channels, hidden_dims, hidden_dims))
+                gau_y.append(
+                    GAUplus(self.out_channels, hidden_dims, hidden_dims))
+
+        self.gau_x = nn.ModuleList(*gau_x)
+        self.gau_y = nn.ModuleList(*gau_y)
 
         # Define rle
         self.gap = nn.AdaptiveAvgPool2d(1)
@@ -112,15 +137,18 @@ class SimCC_Proposal_Head(BaseHead):
         output_coord = self.rle_head(self.gap(feats).reshape(B, C))  # B, K*4
         output_coord = output_coord.reshape(B, -1, 4)
 
-        feats = self.final_layer(feats)
+        feats = self.final_layer(feats)  # B, K, H*W
 
         # flatten the output heatmap
         x = torch.flatten(feats, 2)
+        if self.use_hilbert_flatten:
+            x = x[:, :, self.hilbert_mapping]
 
         proposal = output_coord[:, :, :2].detach().clip(0, 1)
 
-        simcc_x = self.mlp_head_x(x, proposal[:, :, 0:1])
-        simcc_y = self.mlp_head_y(x, proposal[:, :, 1:2])
+        for i in range(len(self.gau_x)):
+            simcc_x = self.gau_x[i](x, proposal[:, :, 0:1])
+            simcc_y = self.gau_y[i](x, proposal[:, :, 1:2])
 
         return output_coord, simcc_x, simcc_y
 
