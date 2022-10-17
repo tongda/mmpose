@@ -20,7 +20,7 @@ OptIntSeq = Optional[Sequence[int]]
 
 
 @MODELS.register_module()
-class SimCC_Offset_Head(BaseHead):
+class SimCC_Proposal_Head(BaseHead):
 
     _version = 2
 
