@@ -67,7 +67,10 @@ class GAU(nn.Module):
         freq_seq = -torch.arange(
             half_size, dtype=torch.float, device=x.device) / float(half_size)
         inv_freq = 10000**-freq_seq
-        sinusoid = torch.einsum('...,d->...d', position, inv_freq)
+        # sinusoid = torch.einsum('...,d->...d', position, inv_freq)
+        sinusoid = position[..., None] * inv_freq[None, None, :]
+        # print(torch.sum(sinusoid -sinusoid2))
+        # print(position.shape, inv_freq.shape, sinusoid.shape)
         sin = torch.sin(sinusoid)
         cos = torch.cos(sinusoid)
         x1, x2 = torch.chunk(x, 2, dim=-1)
@@ -79,11 +82,11 @@ class GAU(nn.Module):
             t = t[..., :-seq_len].reshape(-1, seq_len, 3 * seq_len - 2)
             r = (2 * seq_len - 1) // 2
             t = t[..., r:-r]
-        else:
-            # raise Exception("sequence length error.")
-            a = self.rope(self.a.repeat(seq_len, 1), dim=0)
-            b = self.rope(self.b.repeat(seq_len, 1), dim=0)
-            t = torch.einsum('mk,nk->mn', a, b)
+        # else:
+        #     # raise Exception("sequence length error.")
+        #     a = self.rope(self.a.repeat(seq_len, 1), dim=0)
+        #     b = self.rope(self.b.repeat(seq_len, 1), dim=0)
+        #     t = torch.einsum('mk,nk->mn', a, b)
         return t
 
     def forward(self, x):
@@ -99,11 +102,17 @@ class GAU(nn.Module):
         uv = self.uv(x)
         u, v, base = torch.split(
             self.act_fn(uv), [self.e, self.e, self.s], dim=-1)
-        base = torch.einsum('...r, hr->...hr', base, self.gamma) + self.beta
+        # print(base.shape, self.gamma.shape)
+        # base1 = torch.einsum('...r, hr->...hr', base, self.gamma)
+        base = base.unsqueeze(2) * self.gamma[None, None, :]
+        # print(torch.sum(base1-base2))
+        base = base + self.beta
         base = self.rope(base, dim=1)
         q, k = torch.unbind(base, dim=-2)
 
-        qk = torch.einsum('bnd,bmd->bnm', q, k)
+        # qk = torch.einsum('bnd,bmd->bnm', q, k)
+        qk = torch.bmm(q, k.permute(0, 2, 1))
+        # print(torch.sum(qk-qk2))
 
         bias = self.rel_pos_bias(
             self.max_seq_length)[:, :seq_length, :seq_length]
@@ -115,7 +124,9 @@ class GAU(nn.Module):
         else:
             kernel = torch.square(F.relu(qk / self.sqrt_s + bias))
 
-        x = u * torch.einsum('bnm, bme->bne', kernel, v)
+        # x = u * torch.einsum('bnm, bme->bne', kernel, v)
+        x = u * torch.bmm(kernel, v)
+        # print(torch.sum(x-x2))
 
         if self.use_dropout:
             x = self.dropout(x)
@@ -171,3 +182,10 @@ class GAUplus(nn.Module):
 
         x = self.gau(x)
         return x
+
+
+if __name__ == '__main__':
+    m = torch.rand(4, 17, 128)
+    gau = GAU(17, 128, 128)
+    res = gau(m)
+    print(res.shape)
