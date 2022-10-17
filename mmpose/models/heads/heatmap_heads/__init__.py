@@ -1,5 +1,6 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 from .cpm_head import CPMHead
+from .gau_head import GAU_Head
 from .heatmap_head import HeatmapHead
 from .mspn_head import MSPNHead
 from .simcc_gap_fc_head import SimCC_GAP_FC
@@ -13,5 +14,5 @@ from .vipnas_head import ViPNASHead
 __all__ = [
     'HeatmapHead', 'CPMHead', 'MSPNHead', 'ViPNASHead', 'SimCCHead',
     'SimCC_RLE_Head', 'SimCC_GAP_FC', 'SimCC_IPR_Head',
-    'SimCC_SamplingArgmax_Head', 'SimCC_GAU_Head'
+    'SimCC_SamplingArgmax_Head', 'SimCC_GAU_Head', 'GAU_Head'
 ]
