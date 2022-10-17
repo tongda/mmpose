@@ -13,7 +13,7 @@ from mmpose.registry import KEYPOINT_CODECS, MODELS
 from mmpose.utils.tensor_utils import to_numpy
 from mmpose.utils.typing import (ConfigType, InstanceList, OptConfigType,
                                  OptSampleList)
-from ...utils.gau import GAU
+from ...utils.gau import GAUplus
 from ..base_head import BaseHead
 
 OptIntSeq = Optional[Sequence[int]]
@@ -88,8 +88,8 @@ class SimCC_Offset_Head(BaseHead):
         W = int(self.input_size[0] * self.simcc_split_ratio)
         H = int(self.input_size[1] * self.simcc_split_ratio)
 
-        self.mlp_head_x = GAU(self.out_channels, flatten_dims, W)
-        self.mlp_head_y = GAU(self.out_channels, flatten_dims, H)
+        self.mlp_head_x = GAUplus(self.out_channels, flatten_dims, W)
+        self.mlp_head_y = GAUplus(self.out_channels, flatten_dims, H)
 
         # Define rle
         self.gap = nn.AdaptiveAvgPool2d(1)
@@ -117,8 +117,10 @@ class SimCC_Offset_Head(BaseHead):
         # flatten the output heatmap
         x = torch.flatten(feats, 2)
 
-        simcc_x = self.mlp_head_x(x)
-        simcc_y = self.mlp_head_y(x)
+        proposal = output_coord[:, :, :2].detach().clip(0, 1)
+
+        simcc_x = self.mlp_head_x(x, proposal[:, :, 0:1])
+        simcc_y = self.mlp_head_y(x, proposal[:, :, 1:2])
 
         return output_coord, simcc_x, simcc_y
 

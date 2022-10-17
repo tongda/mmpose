@@ -14,11 +14,13 @@ class GAU(nn.Module):
                  output_size,
                  expansion_factor=2,
                  s=128,
-                 eps=1e-5):
+                 eps=1e-5,
+                 softmax_att=False):
 
         super(GAU, self).__init__()
         self.s = s
         self.max_seq_length = max_seq_length
+        self.softmax_att = softmax_att
         self.gamma = nn.Parameter(torch.rand((2, self.s)))
         self.beta = nn.Parameter(torch.rand((2, self.s)))
         self.e = int(hidden_size * expansion_factor)
@@ -32,8 +34,8 @@ class GAU(nn.Module):
         nn.init.xavier_uniform_(self.uv.weight)
         self.act_fn = nn.SiLU(True)
         self.use_shortcut = hidden_size == output_size
-
-        # self.log_n = math.log(max_seq_length)
+        if softmax_att:
+            self.log_n = math.log(max_seq_length)
         self.sqrt_s = math.sqrt(s)
 
     def rope(self, x, dim):
@@ -101,11 +103,62 @@ class GAU(nn.Module):
 
         bias = self.rel_pos_bias(
             self.max_seq_length)[:, :seq_length, :seq_length]
-        kernel = torch.square(F.relu(qk / self.sqrt_s + bias))
-        # kernel = F.softmax(
-        #  self.log_n * self.max_seq_length * qk / self.sqrt_s + bias, dim=-1)
+
+        if self.softmax_att:
+            kernel = F.softmax(
+                self.log_n * self.max_seq_length * qk / self.sqrt_s + bias,
+                dim=-1)
+        else:
+            kernel = torch.square(F.relu(qk / self.sqrt_s + bias))
+
         x = u * torch.einsum('bnm, bme->bne', kernel, v)
         x = self.o(x)
         if self.use_shortcut:
             x += shortcut
+        return x
+
+
+class GAUplus(nn.Module):
+
+    def __init__(self,
+                 max_seq_length,
+                 hidden_size,
+                 output_size,
+                 expansion_factor=2,
+                 s=128,
+                 eps=1e-5,
+                 softmax_att=False):
+
+        super(GAUplus, self).__init__()
+
+        self.gau = GAU(max_seq_length, hidden_size, output_size,
+                       expansion_factor, s, eps, softmax_att)
+
+    def _get_proposal_pos_embed(self,
+                                proposals,
+                                num_pos_feats=128,
+                                temperature=10000):
+        """Get the position embedding of proposal."""
+        num_pos_feats = self.embed_dims // 2
+        scale = 2 * math.pi
+        dim_t = torch.arange(
+            num_pos_feats, dtype=torch.float32, device=proposals.device)
+        dim_t = temperature**(2 * (dim_t // 2) / num_pos_feats)
+        # N, L, 2
+        proposals = proposals * scale
+
+        # N, L, 2, 128
+        pos = proposals[:, :, :, None] / dim_t
+        # N, L, 2, 64, 2
+        pos = torch.stack((pos[:, :, :, 0::2].sin(), pos[:, :, :, 1::2].cos()),
+                          dim=4).flatten(2)
+        return pos
+
+    def forward(self, x, proposal=None):
+        if proposal is not None:
+            pos_emb = self._get_proposal_pos_embed(
+                proposal, num_pos_feats=x.size(2))
+            x += pos_emb
+
+        x = self.gau(x)
         return x
