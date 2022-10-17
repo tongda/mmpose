@@ -36,6 +36,8 @@ class SimCC_Proposal_Head(BaseHead):
         num_global: int = 1,
         num_split: int = 1,
         use_hilbert_flatten: bool = False,
+        use_proposal: bool = False,
+        pred_proposal: bool = False,
         input_transform: str = 'select',
         input_index: Union[int, Sequence[int]] = -1,
         align_corners: bool = False,
@@ -61,6 +63,8 @@ class SimCC_Proposal_Head(BaseHead):
         self.input_index = input_index
         self.hidden_dims = hidden_dims
         self.use_hilbert_flatten = use_hilbert_flatten
+        self.use_proposal = use_proposal
+        self.pred_proposal = pred_proposal
         self.num_global = num_global
         self.num_split = num_split
         self.reg_loss = MODELS.build(reg_loss)
@@ -117,8 +121,11 @@ class SimCC_Proposal_Head(BaseHead):
         self.gau_y = nn.ModuleList(*gau_y)
 
         # Define rle
-        self.gap = nn.AdaptiveAvgPool2d(1)
-        self.rle_head = nn.Linear(in_channels, out_channels * 4)
+        # self.gap = nn.AdaptiveAvgPool2d(1)
+        self.rle_head = nn.Linear(hidden_dims, out_channels * 4)
+        self.rle_x = nn.Linear(hidden_dims, out_channels * 2)
+        self.rle_y = nn.Linear(hidden_dims, out_channels * 2)
+        # self.sigma_head = nn.Linear(hidden_dims, out_channels * 2)
 
     def forward(self, feats: Tuple[Tensor]) -> Tuple[Tensor, Tensor]:
         """Forward the network. The input is multi scale feature maps and the
@@ -132,10 +139,10 @@ class SimCC_Proposal_Head(BaseHead):
             pred_y (Tensor): 1d representation of y.
         """
         feats = self._transform_inputs(feats)
-        B, C = feats.shape[:2]
+        # B, C = feats.shape[:2]
 
-        output_coord = self.rle_head(self.gap(feats).reshape(B, C))  # B, K*4
-        output_coord = output_coord.reshape(B, -1, 4)
+        # output_coord = self.rle_head(self.gap(feats).reshape(B, C))  # B, K*4
+        # output_coord = output_coord.reshape(B, -1, 4)
 
         feats = self.final_layer(feats)  # B, K, H*W
 
@@ -144,13 +151,39 @@ class SimCC_Proposal_Head(BaseHead):
         if self.use_hilbert_flatten:
             x = x[:, :, self.hilbert_mapping]
 
-        proposal = output_coord[:, :, :2].detach().clip(0, 1)
+        x = self.global_gau(x)
+        output_coord = self.rle_head(x)
+        pred_jts = output_coord[:, :, :2].detach().clip(0, 1)
 
-        for i in range(len(self.gau_x)):
-            simcc_x = self.gau_x[i](x, proposal[:, :, 0:1])
-            simcc_y = self.gau_y[i](x, proposal[:, :, 1:2])
+        jts = [output_coord]
+        proposal_x = pred_jts[:, :, 0:1]
+        proposal_y = pred_jts[:, :, 1:2]
+        simcc_x = self.gau_x[0](x, proposal_x)
+        simcc_y = self.gau_y[0](x, proposal_y)
 
-        return output_coord, simcc_x, simcc_y
+        for i in range(1, len(self.gau_x)):
+            if self.use_proposal:
+                proposal_x = self.rle_x(simcc_x)
+                proposal_y = self.rle_y(simcc_y)
+                t_jts = torch.cat([
+                    proposal_x[:, :, 0:1], proposal_y[:, :, 0:1],
+                    proposal_x[:, :, 1:2], proposal_y[:, :, 1:2]
+                ],
+                                  dim=2)
+                jts.append(t_jts)
+                simcc_x = self.gau_x[i](simcc_x,
+                                        proposal_x[:, :,
+                                                   0:1].detach().clip(0, 1))
+                simcc_y = self.gau_y[i](simcc_y,
+                                        proposal_y[:, :,
+                                                   0:1].detach().clip(0, 1))
+            else:
+                simcc_x = self.gau_x[i](simcc_x)
+                simcc_y = self.gau_y[i](simcc_y)
+        if self.use_proposal:
+            return jts, simcc_x, simcc_y
+        else:
+            return output_coord, simcc_x, simcc_y
 
     def predict(
         self,
