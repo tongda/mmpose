@@ -7,7 +7,8 @@ import torch
 from mmcv.cnn import build_conv_layer
 from torch import Tensor, nn
 
-from mmpose.evaluation.functional import keypoint_pck_accuracy
+from mmpose.evaluation.functional import (keypoint_pck_accuracy,
+                                          simcc_pck_accuracy)
 from mmpose.models.utils.gilbert2d import gilbert2d
 from mmpose.models.utils.tta import flip_coordinates
 from mmpose.registry import KEYPOINT_CODECS, MODELS
@@ -251,8 +252,10 @@ class SimCC_Proposal_Head(BaseHead):
         train_cfg: OptConfigType = {},
     ) -> dict:
         """Calculate losses from a batch of inputs and data samples."""
-
-        pred_outputs, pred_x, pred_y = self.forward(inputs)
+        if self.use_proposal:
+            pred_jts, pred_x, pred_y = self.forward(inputs)
+        else:
+            pred_outputs, pred_x, pred_y = self.forward(inputs)
 
         keypoint_labels = torch.cat(
             [d.gt_instance_labels.keypoint_labels for d in batch_data_samples])
@@ -284,8 +287,17 @@ class SimCC_Proposal_Head(BaseHead):
 
         # calculate losses
         losses = dict()
-        loss = self.reg_loss(pred_coords, pred_sigma, keypoint_labels,
-                             keypoint_weights)
+        loss = 0
+        if self.use_proposal:
+            for pred_outputs in pred_jts:
+                t_pred_coords = pred_outputs[:, :, :2]
+                t_pred_sigma = pred_outputs[:, :, 2:4]
+                loss += self.reg_loss(t_pred_coords, t_pred_sigma,
+                                      keypoint_labels, keypoint_weights)
+            loss /= len(pred_jts)
+
+        loss += self.reg_loss(pred_coords, pred_sigma, keypoint_labels,
+                              keypoint_weights)
         loss += self.simcc_loss(pred_simcc, gt_simcc, keypoint_weights2)
 
         losses.update(loss_kpt=loss)
@@ -299,8 +311,29 @@ class SimCC_Proposal_Head(BaseHead):
             norm_factor=np.ones((pred_coords.size(0), 2), dtype=np.float32))
 
         acc_pose = torch.tensor(avg_acc, device=keypoint_labels.device)
-        losses.update(acc_pose=acc_pose)
+        losses.update(acc_rle=acc_pose)
 
+        if self.use_proposal:
+            _, avg_acc, _ = keypoint_pck_accuracy(
+                pred=to_numpy(t_pred_coords),
+                gt=to_numpy(keypoint_labels),
+                mask=to_numpy(keypoint_weights) > 0,
+                thr=0.05,
+                norm_factor=np.ones((t_pred_coords.size(0), 2),
+                                    dtype=np.float32))
+
+            acc_pose = torch.tensor(avg_acc, device=keypoint_labels.device)
+            losses.update(acc_rle2=acc_pose)
+
+        _, avg_acc, _ = simcc_pck_accuracy(
+            output=to_numpy(pred_simcc),
+            target=to_numpy(gt_simcc),
+            simcc_split_ratio=self.simcc_split_ratio,
+            mask=to_numpy(keypoint_weights) > 0,
+        )
+
+        acc_pose = torch.tensor(avg_acc, device=gt_x.device)
+        losses.update(acc_pose=acc_pose)
         return losses
 
     @property
