@@ -28,11 +28,19 @@ auto_scale_lr = dict(base_batch_size=1024)
 
 # codec settings
 codec = dict(
-    type='SimCCLabel',
+    type='SimCCRLELabel',
     input_size=(192, 256),
     sigma=(4.9, 5.66),
     simcc_split_ratio=2.0,
     normalize=False,
+    use_dark=True)
+
+decoder = dict(
+    type='SimCCLabel',
+    input_size=(192, 256),
+    sigma=(4.9, 5.66),
+    simcc_split_ratio=2.0,
+    normalize=True,
     use_dark=True)
 
 # model settings
@@ -61,6 +69,7 @@ model = dict(
         in_featuremap_size=(6, 8),
         simcc_split_ratio=codec['simcc_split_ratio'],
         hidden_dims=256,
+        gau_type='GAU',
         num_global=1,
         num_split=1,
         use_hilbert_flatten=False,
@@ -72,7 +81,7 @@ model = dict(
             beta=10.,
             use_softmax=True),
         reg_loss=dict(type='RLELoss', use_target_weight=True),
-        decoder=codec),
+        decoder=decoder),
     test_cfg=dict(flip_test=True, ))
 
 # base dataset settings
@@ -114,7 +123,9 @@ train_pipeline = [
     #     ],
     #     ),
     dict(
-        type='GenerateTarget', target_type='keypoint_xy_label', encoder=codec),
+        type='GenerateTarget',
+        target_type='keypoint_xy_label+keypoint_label',
+        encoder=codec),
     dict(type='PackPoseInputs')
 ]
 val_pipeline = [

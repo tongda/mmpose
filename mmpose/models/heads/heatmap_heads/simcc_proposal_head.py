@@ -10,7 +10,7 @@ from torch import Tensor, nn
 from mmpose.evaluation.functional import (keypoint_pck_accuracy,
                                           simcc_pck_accuracy)
 from mmpose.models.utils.gilbert2d import gilbert2d
-from mmpose.models.utils.tta import flip_coordinates
+from mmpose.models.utils.tta import flip_vectors
 from mmpose.registry import KEYPOINT_CODECS, MODELS
 from mmpose.utils.tensor_utils import to_numpy
 from mmpose.utils.typing import (ConfigType, InstanceList, OptConfigType,
@@ -161,8 +161,9 @@ class SimCC_Proposal_Head(BaseHead):
         # Define rle
         # self.gap = nn.AdaptiveAvgPool2d(1)
         self.rle_head = nn.Linear(hidden_dims, out_channels * 4)
-        self.rle_x = nn.Linear(hidden_dims, out_channels * 2)
-        self.rle_y = nn.Linear(hidden_dims, out_channels * 2)
+        if self.use_proposal:
+            self.rle_x = nn.Linear(hidden_dims, out_channels * 2)
+            self.rle_y = nn.Linear(hidden_dims, out_channels * 2)
         # self.sigma_head = nn.Linear(hidden_dims, out_channels * 2)
 
     def forward(self, feats: Tuple[Tensor]) -> Tuple[Tensor, Tensor]:
@@ -199,11 +200,11 @@ class SimCC_Proposal_Head(BaseHead):
             jts = [output_coord]
             proposal_x = pred_jts[:, :, 0:1]
             proposal_y = pred_jts[:, :, 1:2]
+            simcc_x = self.gau_x[0](x, proposal_x)
+            simcc_y = self.gau_y[0](x, proposal_y)
         else:
-            proposal_x, proposal_y = None, None
-
-        simcc_x = self.gau_x[0](x, proposal_x)
-        simcc_y = self.gau_y[0](x, proposal_y)
+            simcc_x = self.gau_x[0](x)
+            simcc_y = self.gau_y[0](x)
 
         for i in range(1, len(self.gau_x)):
             if self.use_proposal:
@@ -264,27 +265,31 @@ class SimCC_Proposal_Head(BaseHead):
             # TTA: flip test -> feats = [orig, flipped]
             assert isinstance(feats, list) and len(feats) == 2
             flip_indices = batch_data_samples[0].metainfo['flip_indices']
-            input_size = batch_data_samples[0].metainfo['input_size']
-
             _feats, _feats_flip = feats
 
-            _batch_coords, _, _ = self.forward(_feats)
-            _batch_coords[..., 2:] = _batch_coords[..., 2:].sigmoid()
+            _, _batch_pred_x, _batch_pred_y = self.forward(_feats)
 
-            _batch_coords_flip = flip_coordinates(
-                self.forward(_feats_flip)[0],
-                flip_indices=flip_indices,
-                shift_coords=test_cfg.get('shift_coords', True),
-                input_size=input_size)
-            _batch_coords_flip[..., 2:] = _batch_coords_flip[..., 2:].sigmoid()
+            _, _batch_pred_x_flip, _batch_pred_y_flip = self.forward(
+                _feats_flip)
+            _batch_pred_x_flip, _batch_pred_y_flip = flip_vectors(
+                _batch_pred_x_flip,
+                _batch_pred_y_flip,
+                flip_indices=flip_indices)
 
-            batch_coords = (_batch_coords + _batch_coords_flip) * 0.5
+            batch_pred_x = (_batch_pred_x + _batch_pred_x_flip) * 0.5
+            batch_pred_y = (_batch_pred_y + _batch_pred_y_flip) * 0.5
         else:
-            batch_coords, _, _ = self.forward(feats)  # (B, K, D)
-            batch_coords[..., 2:] = batch_coords[..., 2:].sigmoid()
+            _, batch_pred_x, batch_pred_y = self.forward(feats)
 
-        batch_coords.unsqueeze_(dim=1)  # (B, N, K, D)
-        preds = self.decode(batch_coords)
+        preds = self.decode((batch_pred_x, batch_pred_y))
+
+        if test_cfg.get('output_heatmaps', False):
+            for pred_instances, pred_x, pred_y in zip(preds,
+                                                      to_numpy(batch_pred_x),
+                                                      to_numpy(batch_pred_y)):
+
+                pred_instances.keypoint_x_labels = pred_x[None]
+                pred_instances.keypoint_y_labels = pred_y[None]
 
         return preds
 
