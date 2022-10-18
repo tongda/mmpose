@@ -15,7 +15,7 @@ from mmpose.registry import KEYPOINT_CODECS, MODELS
 from mmpose.utils.tensor_utils import to_numpy
 from mmpose.utils.typing import (ConfigType, InstanceList, OptConfigType,
                                  OptSampleList)
-from ...utils.gau import GAUplus
+from ...utils.gau import GAU, SAGAU, GAUplus
 from ..base_head import BaseHead
 
 OptIntSeq = Optional[Sequence[int]]
@@ -38,7 +38,8 @@ class SimCC_Proposal_Head(BaseHead):
         num_split: int = 1,
         use_hilbert_flatten: bool = False,
         use_proposal: bool = False,
-        pred_proposal: bool = False,
+        use_dropout: bool = False,
+        gau_type: str = 'GAU',
         input_transform: str = 'select',
         input_index: Union[int, Sequence[int]] = -1,
         align_corners: bool = False,
@@ -65,7 +66,7 @@ class SimCC_Proposal_Head(BaseHead):
         self.hidden_dims = hidden_dims
         self.use_hilbert_flatten = use_hilbert_flatten
         self.use_proposal = use_proposal
-        self.pred_proposal = pred_proposal
+        self.use_dropout = use_dropout
         self.num_global = num_global
         self.num_split = num_split
         self.reg_loss = MODELS.build(reg_loss)
@@ -101,22 +102,57 @@ class SimCC_Proposal_Head(BaseHead):
         W = int(self.input_size[0] * self.simcc_split_ratio)
         H = int(self.input_size[1] * self.simcc_split_ratio)
 
-        global_gau = [GAUplus(self.out_channels, flatten_dims, hidden_dims)]
+        if gau_type == 'SAGAU':
+            GAU_module = SAGAU
+        elif gau_type == 'GAUplus':
+            GAU_module = GAUplus
+        else:
+            GAU_module = GAU
+
+        global_gau = [
+            GAU_module(
+                self.out_channels,
+                flatten_dims,
+                hidden_dims,
+                use_dropout=use_dropout)
+        ]
         for _ in range(num_global - 1):
             global_gau.append(
-                GAUplus(self.out_channels, hidden_dims, hidden_dims))
+                GAU_module(
+                    self.out_channels,
+                    hidden_dims,
+                    hidden_dims,
+                    use_dropout=use_dropout))
         self.global_gau = nn.Sequential(*global_gau)
 
         gau_x, gau_y = [], []
         for i in range(num_split):
             if i == num_split - 1:
-                gau_x.append(GAUplus(self.out_channels, hidden_dims, W))
-                gau_y.append(GAUplus(self.out_channels, hidden_dims, H))
+                gau_x.append(
+                    GAU_module(
+                        self.out_channels,
+                        hidden_dims,
+                        W,
+                        use_dropout=use_dropout))
+                gau_y.append(
+                    GAU_module(
+                        self.out_channels,
+                        hidden_dims,
+                        H,
+                        use_dropout=use_dropout))
             else:
                 gau_x.append(
-                    GAUplus(self.out_channels, hidden_dims, hidden_dims))
+                    GAU_module(
+                        self.out_channels,
+                        hidden_dims,
+                        hidden_dims,
+                        use_dropout=use_dropout))
                 gau_y.append(
-                    GAUplus(self.out_channels, hidden_dims, hidden_dims))
+                    GAU_module(
+                        self.out_channels,
+                        hidden_dims,
+                        hidden_dims,
+                        use_dropout=use_dropout))
 
         self.gau_x = nn.ModuleList(*gau_x)
         self.gau_y = nn.ModuleList(*gau_y)
