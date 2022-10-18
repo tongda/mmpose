@@ -161,7 +161,7 @@ class SimCC_Proposal_Head(BaseHead):
         # Define rle
         # self.gap = nn.AdaptiveAvgPool2d(1)
         self.rle_head = nn.Linear(hidden_dims, out_channels * 4)
-        if self.use_proposal:
+        if self.use_proposal and num_split > 1:
             self.rle_x = nn.Linear(hidden_dims, out_channels * 2)
             self.rle_y = nn.Linear(hidden_dims, out_channels * 2)
         # self.sigma_head = nn.Linear(hidden_dims, out_channels * 2)
@@ -304,17 +304,18 @@ class SimCC_Proposal_Head(BaseHead):
         """Calculate losses from a batch of inputs and data samples."""
         if self.use_proposal:
             pred_jts, pred_x, pred_y = self.forward(inputs)
+            pred_coords = pred_jts[0][:, :, :2]
+            pred_sigma = pred_jts[0][:, :, 2:4]
         else:
             pred_outputs, pred_x, pred_y = self.forward(inputs)
+            pred_coords = pred_outputs[:, :, :2]
+            pred_sigma = pred_outputs[:, :, 2:4]
 
         keypoint_labels = torch.cat(
             [d.gt_instance_labels.keypoint_labels for d in batch_data_samples])
         keypoint_weights = torch.cat([
             d.gt_instance_labels.keypoint_weights for d in batch_data_samples
         ])
-
-        pred_coords = pred_outputs[:, :, :2]
-        pred_sigma = pred_outputs[:, :, 2:4]
 
         gt_x = torch.cat([
             d.gt_instance_labels.keypoint_x_labels for d in batch_data_samples
@@ -339,7 +340,7 @@ class SimCC_Proposal_Head(BaseHead):
         losses = dict()
         loss = 0
         if self.use_proposal:
-            for pred_outputs in pred_jts:
+            for pred_outputs in pred_jts[1:]:
                 t_pred_coords = pred_outputs[:, :, :2]
                 t_pred_sigma = pred_outputs[:, :, 2:4]
                 loss += self.reg_loss(t_pred_coords, t_pred_sigma,
@@ -363,7 +364,7 @@ class SimCC_Proposal_Head(BaseHead):
         acc_pose = torch.tensor(avg_acc, device=keypoint_labels.device)
         losses.update(acc_rle=acc_pose)
 
-        if self.use_proposal:
+        if self.use_proposal and self.num_split > 1:
             _, avg_acc, _ = keypoint_pck_accuracy(
                 pred=to_numpy(t_pred_coords),
                 gt=to_numpy(keypoint_labels),

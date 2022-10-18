@@ -239,7 +239,7 @@ class SAGAU(nn.Module):
                 torch.arange(total_len, dtype=torch.float, device=x.device),
                 spatial_shape)
         else:
-            position = torch.reshape(proposal, spatial_shape)
+            position = proposal
 
         for i in range(dim[-1] + 1, len(shape) - 1, 1):
             position = torch.unsqueeze(position, dim=-1)
@@ -249,7 +249,10 @@ class SAGAU(nn.Module):
             half_size, dtype=torch.float, device=x.device) / float(half_size)
         inv_freq = 10000**-freq_seq
         # sinusoid = torch.einsum('...,d->...d', position, inv_freq)
-        sinusoid = position[..., None] * inv_freq[None, None, :]
+        if proposal is None:
+            sinusoid = position[..., None] * inv_freq[None, None, :]
+        else:
+            sinusoid = position * inv_freq[None, None, :]
         # print(torch.sum(sinusoid -sinusoid2))
         # print(position.shape, inv_freq.shape, sinusoid.shape)
         sin = torch.sin(sinusoid)
@@ -340,6 +343,7 @@ class SAGAU(nn.Module):
 
 if __name__ == '__main__':
     m = torch.rand(4, 17, 128)
-    gau = GAU(17, 128, 128)
-    res = gau(m)
+    gau = SAGAU(17, 128, 128)
+    p = torch.rand(4, 17, 1)
+    res = gau(m, p)
     print(res.shape)
