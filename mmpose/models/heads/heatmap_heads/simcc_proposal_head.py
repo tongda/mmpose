@@ -109,15 +109,15 @@ class SimCC_Proposal_Head(BaseHead):
         else:
             GAU_module = GAU
 
-        self.mlp = GAU_module(
-            self.out_channels,
-            flatten_dims,
-            hidden_dims,
-            use_dropout=use_dropout)
-        # self.mlp = nn.Linear(flatten_dims, hidden_dims)
+        # self.mlp = GAU_module(
+        #     self.out_channels,
+        #     flatten_dims,
+        #     hidden_dims,
+        #     use_dropout=use_dropout)
+        self.mlp = nn.Linear(flatten_dims, hidden_dims)
 
         global_gau = []
-        for _ in range(num_global - 1):
+        for _ in range(num_global):
             global_gau.append(
                 GAU_module(
                     self.out_channels,
@@ -155,8 +155,8 @@ class SimCC_Proposal_Head(BaseHead):
                         hidden_dims,
                         use_dropout=use_dropout))
 
-        self.gau_x = nn.ModuleList(*gau_x)
-        self.gau_y = nn.ModuleList(*gau_y)
+        self.gau_x = nn.ModuleList(gau_x)
+        self.gau_y = nn.ModuleList(gau_y)
 
         # Define rle
         # self.gap = nn.AdaptiveAvgPool2d(1)
@@ -195,9 +195,13 @@ class SimCC_Proposal_Head(BaseHead):
         output_coord = self.rle_head(x)
         pred_jts = output_coord[:, :, :2].detach().clip(0, 1)
 
-        jts = [output_coord]
-        proposal_x = pred_jts[:, :, 0:1]
-        proposal_y = pred_jts[:, :, 1:2]
+        if self.use_proposal:
+            jts = [output_coord]
+            proposal_x = pred_jts[:, :, 0:1]
+            proposal_y = pred_jts[:, :, 1:2]
+        else:
+            proposal_x, proposal_y = None, None
+
         simcc_x = self.gau_x[0](x, proposal_x)
         simcc_y = self.gau_y[0](x, proposal_y)
 
