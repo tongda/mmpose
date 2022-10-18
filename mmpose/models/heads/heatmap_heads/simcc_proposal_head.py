@@ -225,10 +225,13 @@ class SimCC_Proposal_Head(BaseHead):
             else:
                 simcc_x = self.gau_x[i](simcc_x)
                 simcc_y = self.gau_y[i](simcc_y)
-        if self.use_proposal:
-            return jts, simcc_x, simcc_y
+        if self.training:
+            if self.use_proposal:
+                return jts, simcc_x, simcc_y
+            else:
+                return output_coord, simcc_x, simcc_y
         else:
-            return output_coord, simcc_x, simcc_y
+            return simcc_x, simcc_y
 
     def predict(
         self,
@@ -267,10 +270,9 @@ class SimCC_Proposal_Head(BaseHead):
             flip_indices = batch_data_samples[0].metainfo['flip_indices']
             _feats, _feats_flip = feats
 
-            _, _batch_pred_x, _batch_pred_y = self.forward(_feats)
+            _batch_pred_x, _batch_pred_y = self.forward(_feats)
 
-            _, _batch_pred_x_flip, _batch_pred_y_flip = self.forward(
-                _feats_flip)
+            _batch_pred_x_flip, _batch_pred_y_flip = self.forward(_feats_flip)
             _batch_pred_x_flip, _batch_pred_y_flip = flip_vectors(
                 _batch_pred_x_flip,
                 _batch_pred_y_flip,
@@ -279,7 +281,7 @@ class SimCC_Proposal_Head(BaseHead):
             batch_pred_x = (_batch_pred_x + _batch_pred_x_flip) * 0.5
             batch_pred_y = (_batch_pred_y + _batch_pred_y_flip) * 0.5
         else:
-            _, batch_pred_x, batch_pred_y = self.forward(feats)
+            batch_pred_x, batch_pred_y = self.forward(feats)
 
         preds = self.decode((batch_pred_x, batch_pred_y))
 
