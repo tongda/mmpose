@@ -66,6 +66,7 @@ model = dict(
         num_split=1,
         use_hilbert_flatten=False,
         use_proposal=False,
+        use_dropout=False,
         loss=dict(
             type='KLDiscretLoss',
             use_target_weight=True,

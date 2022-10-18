@@ -109,13 +109,14 @@ class SimCC_Proposal_Head(BaseHead):
         else:
             GAU_module = GAU
 
-        global_gau = [
-            GAU_module(
-                self.out_channels,
-                flatten_dims,
-                hidden_dims,
-                use_dropout=use_dropout)
-        ]
+        self.mlp = GAU_module(
+            self.out_channels,
+            flatten_dims,
+            hidden_dims,
+            use_dropout=use_dropout)
+        # self.mlp = nn.Linear(flatten_dims, hidden_dims)
+
+        global_gau = []
         for _ in range(num_global - 1):
             global_gau.append(
                 GAU_module(
@@ -187,6 +188,8 @@ class SimCC_Proposal_Head(BaseHead):
         x = torch.flatten(feats, 2)
         if self.use_hilbert_flatten:
             x = x[:, :, self.hilbert_mapping]
+
+        x = self.mlp(x)
 
         x = self.global_gau(x)
         output_coord = self.rle_head(x)
