@@ -28,8 +28,8 @@ class GAU(nn.Module):
         self.e = int(hidden_size * expansion_factor)
         self.w = nn.Parameter(
             torch.rand([2 * max_seq_length - 1], dtype=torch.float))
-        self.a = nn.Parameter(torch.rand([1, self.s], dtype=torch.float))
-        self.b = nn.Parameter(torch.rand([1, self.s], dtype=torch.float))
+        # self.a = nn.Parameter(torch.rand([1, self.s], dtype=torch.float))
+        # self.b = nn.Parameter(torch.rand([1, self.s], dtype=torch.float))
         self.o = nn.Linear(self.e, output_size)
         self.uv = nn.Linear(hidden_size, 2 * self.e + self.s)
         self.ln = nn.LayerNorm(hidden_size, eps=eps)
@@ -86,17 +86,17 @@ class GAU(nn.Module):
         return torch.cat([x1 * cos - x2 * sin, x2 * cos + x1 * sin], dim=-1)
 
     def rel_pos_bias(self, seq_len):
-        # if seq_len <= 512:
-        #     t = F.pad(self.w[:2 * seq_len - 1], [0, seq_len]).repeat(seq_len)
-        #     t = t[..., :-seq_len].reshape(-1, seq_len, 3 * seq_len - 2)
-        #     r = (2 * seq_len - 1) // 2
-        #     t = t[..., r:-r]
+        if seq_len <= 512:
+            t = F.pad(self.w[:2 * seq_len - 1], [0, seq_len]).repeat(seq_len)
+            t = t[..., :-seq_len].reshape(-1, seq_len, 3 * seq_len - 2)
+            r = (2 * seq_len - 1) // 2
+            t = t[..., r:-r]
         # else:
         # #     # raise Exception("sequence length error.")
-        a = self.rope(self.a.repeat(seq_len, 1), dim=0)
-        b = self.rope(self.b.repeat(seq_len, 1), dim=0)
+        # a = self.rope(self.a.repeat(seq_len, 1), dim=0)
+        # b = self.rope(self.b.repeat(seq_len, 1), dim=0)
         # t = torch.einsum('bmk,bnk->bmn', a, b)
-        t = torch.bmm(a, b.permute(0, 2, 1))
+        # t = torch.bmm(a, b.permute(0, 2, 1))
         return t
 
     def forward(self, x):

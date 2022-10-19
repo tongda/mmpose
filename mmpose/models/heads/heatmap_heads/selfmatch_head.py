@@ -173,9 +173,16 @@ class SelfMatchHead(BaseHead):
                 cfg = dict(
                     type='Conv2d',
                     in_channels=in_channels,
-                    out_channels=out_channels + coord_dims,
+                    out_channels=out_channels,
                     kernel_size=1)
-                self.final_layer = build_conv_layer(cfg)
+                self.token_layer = build_conv_layer(cfg)
+
+                cfg = dict(
+                    type='Conv2d',
+                    in_channels=in_channels,
+                    out_channels=coord_dims,
+                    kernel_size=1)
+                self.coord_layer = build_conv_layer(cfg)
             else:
                 self.final_layer = None
 
@@ -202,13 +209,15 @@ class SelfMatchHead(BaseHead):
         H = int(self.input_size[1] * self.simcc_split_ratio)
 
         self.mlp = nn.Linear(flatten_dims, hidden_dims)
+        # self.coord_mlp = nn.Linear(flatten_dims, hidden_dims)
+
         coord_gau, kpt_gau = [], []
         for _ in range(num_global):
             kpt_gau.append(
                 GAU(self.out_channels,
                     hidden_dims,
                     hidden_dims,
-                    kpt_structure=True,
+                    kpt_structure=False,
                     use_dropout=use_dropout))
             coord_gau.append(
                 GAU(self.coord_dims,
@@ -225,13 +234,13 @@ class SelfMatchHead(BaseHead):
                 GAU(self.out_channels,
                     hidden_dims,
                     hidden_dims,
-                    kpt_structure=True,
+                    kpt_structure=False,
                     use_dropout=use_dropout))
             kpt_y.append(
                 GAU(self.out_channels,
                     hidden_dims,
                     hidden_dims,
-                    kpt_structure=True,
+                    kpt_structure=False,
                     use_dropout=use_dropout))
 
             coord_x.append(
@@ -310,20 +319,26 @@ class SelfMatchHead(BaseHead):
         """
         if self.deconv_head is None:
             feats = self._transform_inputs(feats)
-            if self.final_layer is not None:
-                feats = self.final_layer(feats)
+            if self.token_layer is not None:
+                token_feats = self.token_layer(feats)
+                coord_feats = self.coord_layer(feats)
         else:
             feats = self.deconv_head(feats)
 
         # flatten the output heatmap
-        x = torch.flatten(feats, 2)
+        token_feats = torch.flatten(token_feats, 2)
+        coord_feats = torch.flatten(coord_feats, 2)
         if self.use_hilbert_flatten:
-            x = x[:, :, self.hilbert_mapping]
+            token_feats = token_feats[:, :, self.hilbert_mapping]
+            coord_feats = coord_feats[:, :, self.hilbert_mapping]
 
-        x = self.mlp(x)  # B, 512+17, 256
+        # token_feats = self.token_mlp(token_feats)  # B, 512+17, 256
+        # coord_feats = self.coord_mlp(coord_feats)  # B, 512+17, 256
+        token_feats = self.mlp(token_feats)  # B, 17, 256
+        coord_feats = self.mlp(coord_feats)  # B, 512, 256
 
-        kpt_global = self.kpt_gau(x[:, :self.out_channels, :])
-        coord_global = self.coord_gau(x[:, self.out_channels:, :])
+        kpt_global = self.kpt_gau(token_feats)
+        coord_global = self.coord_gau(coord_feats)
 
         pred_x_token = self.kpt_x(kpt_global)  # B, 17, 256
         pred_y_token = self.kpt_y(kpt_global)  # B, 17, 256
