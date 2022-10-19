@@ -126,8 +126,9 @@ class SimCC_Proposal_Head(BaseHead):
                     use_dropout=use_dropout))
         self.global_gau = nn.Sequential(*global_gau)
 
-        gau_x, gau_y = [], []
+        gau_x, gau_y, bns = [], [], []
         for i in range(num_split):
+            bns.append(nn.LayerNorm(hidden_dims, eps=1e-5))
             if i == num_split - 1:
                 gau_x.append(
                     GAU_module(
@@ -157,7 +158,7 @@ class SimCC_Proposal_Head(BaseHead):
 
         self.gau_x = nn.ModuleList(gau_x)
         self.gau_y = nn.ModuleList(gau_y)
-
+        self.bns = nn.ModuleList(bns)
         # Define rle
         # self.gap = nn.AdaptiveAvgPool2d(1)
         self.rle_head = nn.Linear(hidden_dims, out_channels * 4)
@@ -193,7 +194,8 @@ class SimCC_Proposal_Head(BaseHead):
         x = self.mlp(x)
 
         x = self.global_gau(x)
-        output_coord = self.rle_head(x)
+
+        output_coord = self.rle_head(self.bns[0](x))
         pred_jts = output_coord[:, :, :2].detach().clip(0, 1)
 
         if self.use_proposal:
@@ -208,8 +210,8 @@ class SimCC_Proposal_Head(BaseHead):
 
         for i in range(1, len(self.gau_x)):
             if self.use_proposal:
-                proposal_x = self.rle_x(simcc_x)
-                proposal_y = self.rle_y(simcc_y)
+                proposal_x = self.rle_x(self.bns[i](simcc_x))
+                proposal_y = self.rle_y(self.bns[i](simcc_y))
                 t_jts = torch.cat([
                     proposal_x[:, :, 0:1], proposal_y[:, :, 0:1],
                     proposal_x[:, :, 1:2], proposal_y[:, :, 1:2]
@@ -223,8 +225,8 @@ class SimCC_Proposal_Head(BaseHead):
                                         proposal_y[:, :,
                                                    0:1].detach().clip(0, 1))
             else:
-                simcc_x = self.gau_x[i](simcc_x)
-                simcc_y = self.gau_y[i](simcc_y)
+                simcc_x = self.gau_x[i](self.bns[i](simcc_x))
+                simcc_y = self.gau_y[i](self.bns[i](simcc_y))
         if self.training:
             if self.use_proposal:
                 return jts, simcc_x, simcc_y

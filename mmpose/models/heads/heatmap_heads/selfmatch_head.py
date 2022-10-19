@@ -19,7 +19,7 @@ OptIntSeq = Optional[Sequence[int]]
 
 
 @MODELS.register_module()
-class GAU_Head(BaseHead):
+class SelfMatchHead(BaseHead):
     """Top-down heatmap head introduced in `SimCC`_ by Li et al (2022). The
     head is composed of a few deconvolutional layers followed by a fully-
     connected layer to generate 1d representation from low-resolution feature
@@ -90,8 +90,11 @@ class GAU_Head(BaseHead):
         in_featuremap_size: Tuple[int, int],
         simcc_split_ratio: float = 2.0,
         hidden_dims: int = 256,
+        coord_dims: int = 512,
         num_global: int = 1,
         num_split: int = 1,
+        use_hilbert_flatten: bool = False,
+        use_dropout: bool = False,
         deconv_type: str = 'heatmap',
         deconv_out_channels: OptIntSeq = (256, 256, 256),
         deconv_kernel_sizes: OptIntSeq = (4, 4, 4),
@@ -123,8 +126,11 @@ class GAU_Head(BaseHead):
         self.input_size = input_size
         self.in_featuremap_size = in_featuremap_size
         self.simcc_split_ratio = simcc_split_ratio
+        self.use_hilbert_flatten = use_hilbert_flatten
+        self.use_dropout = use_dropout
         self.num_global = num_global
         self.num_split = num_split
+        self.coord_dims = coord_dims
         self.align_corners = align_corners
         self.input_transform = input_transform
         self.input_index = input_index
@@ -167,7 +173,7 @@ class GAU_Head(BaseHead):
                 cfg = dict(
                     type='Conv2d',
                     in_channels=in_channels,
-                    out_channels=out_channels,
+                    out_channels=out_channels + coord_dims,
                     kernel_size=1)
                 self.final_layer = build_conv_layer(cfg)
             else:
@@ -192,44 +198,57 @@ class GAU_Head(BaseHead):
         # Define SimCC layers
         flatten_dims = self.heatmap_size[0] * self.heatmap_size[1]
 
-        W = int(self.input_size[0] * self.simcc_split_ratio)
-        H = int(self.input_size[1] * self.simcc_split_ratio)
+        # W = int(self.input_size[0] * self.simcc_split_ratio)
+        # H = int(self.input_size[1] * self.simcc_split_ratio)
 
-        global_gau = [
-            GAU(self.out_channels,
-                flatten_dims,
-                hidden_dims,
-                kpt_structure=True)
-        ]
-        for _ in range(num_global - 1):
-            global_gau.append(
+        self.mlp = nn.Linear(flatten_dims, hidden_dims)
+        coord_gau, kpt_gau = [], []
+        for _ in range(num_global):
+            kpt_gau.append(
                 GAU(self.out_channels,
                     hidden_dims,
                     hidden_dims,
-                    kpt_structure=True))
-        self.global_gau = nn.Sequential(*global_gau)
+                    kpt_structure=True,
+                    use_dropout=use_dropout))
+            coord_gau.append(
+                GAU(self.coord_dims,
+                    hidden_dims,
+                    hidden_dims,
+                    use_dropout=use_dropout))
+        self.coord_gau = nn.Sequential(*coord_gau)
+        self.kpt_gau = nn.Sequential(*kpt_gau)
 
-        gau_x, gau_y = [], []
+        kpt_x, kpt_y = [], []
+        coord_x, coord_y = [], []
         for i in range(num_split):
-            if i == num_split - 1:
-                gau_x.append(
-                    GAU(self.out_channels, hidden_dims, W, kpt_structure=True))
-                gau_y.append(
-                    GAU(self.out_channels, hidden_dims, H, kpt_structure=True))
-            else:
-                gau_x.append(
-                    GAU(self.out_channels,
-                        hidden_dims,
-                        hidden_dims,
-                        kpt_structure=True))
-                gau_y.append(
-                    GAU(self.out_channels,
-                        hidden_dims,
-                        hidden_dims,
-                        kpt_structure=True))
+            kpt_x.append(
+                GAU(self.out_channels,
+                    hidden_dims,
+                    hidden_dims,
+                    kpt_structure=True,
+                    use_dropout=use_dropout))
+            kpt_y.append(
+                GAU(self.out_channels,
+                    hidden_dims,
+                    hidden_dims,
+                    kpt_structure=True,
+                    use_dropout=use_dropout))
 
-        self.gau_x = nn.Sequential(*gau_x)
-        self.gau_y = nn.Sequential(*gau_y)
+            coord_x.append(
+                GAU(self.coord_dims,
+                    hidden_dims,
+                    hidden_dims,
+                    use_dropout=use_dropout))
+            coord_y.append(
+                GAU(self.coord_dims,
+                    hidden_dims,
+                    hidden_dims,
+                    use_dropout=use_dropout))
+
+        self.kpt_x = nn.Sequential(*kpt_x)
+        self.kpt_y = nn.Sequential(*kpt_y)
+        self.coord_x = nn.Sequential(*coord_x)
+        self.coord_y = nn.Sequential(*coord_y)
 
     def _make_deconv_head(self,
                           in_channels: Union[int, Sequence[int]],
@@ -296,11 +315,23 @@ class GAU_Head(BaseHead):
 
         # flatten the output heatmap
         x = torch.flatten(feats, 2)
+        if self.use_hilbert_flatten:
+            x = x[:, :, self.hilbert_mapping]
 
-        x = self.global_gau(x)
+        x = self.mlp(x)  # B, 512+17, 256
 
-        pred_x = self.gau_x(x)
-        pred_y = self.gau_y(x)
+        kpt_global = self.kpt_gau(x[:, :self.out_channels, :])
+        coord_global = self.coord_gau(x[:, self.out_channels:, :])
+
+        pred_x_token = self.kpt_x(kpt_global)  # B, 17, 256
+        pred_y_token = self.kpt_y(kpt_global)  # B, 17, 256
+
+        coord_x_token = self.coord_x(coord_global)  # B, 512, 256
+        coord_y_token = self.coord_y(coord_global)  # B, 512, 256
+
+        # B, 17, 512
+        pred_x = torch.bmm(pred_x_token, coord_x_token.permute(0, 2, 1))
+        pred_y = torch.bmm(pred_y_token, coord_y_token.permute(0, 2, 1))
 
         return pred_x, pred_y
 

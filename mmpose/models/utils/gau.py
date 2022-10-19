@@ -16,7 +16,8 @@ class GAU(nn.Module):
                  s=128,
                  eps=1e-5,
                  use_dropout=False,
-                 softmax_att=False):
+                 softmax_att=False,
+                 kpt_structure=False):
 
         super(GAU, self).__init__()
         self.s = s
@@ -27,8 +28,8 @@ class GAU(nn.Module):
         self.e = int(hidden_size * expansion_factor)
         self.w = nn.Parameter(
             torch.rand([2 * max_seq_length - 1], dtype=torch.float))
-        # self.a = nn.Parameter(torch.rand([1, self.s], dtype=torch.float))
-        # self.b = nn.Parameter(torch.rand([1, self.s], dtype=torch.float))
+        self.a = nn.Parameter(torch.rand([1, self.s], dtype=torch.float))
+        self.b = nn.Parameter(torch.rand([1, self.s], dtype=torch.float))
         self.o = nn.Linear(self.e, output_size)
         self.uv = nn.Linear(hidden_size, 2 * self.e + self.s)
         self.ln = nn.LayerNorm(hidden_size, eps=eps)
@@ -41,6 +42,7 @@ class GAU(nn.Module):
         self.use_dropout = use_dropout
         if use_dropout:
             self.dropout = nn.Dropout(0.2)
+        self.kpt_structure = kpt_structure
 
     def rope(self, x, dim):
         """
@@ -56,9 +58,16 @@ class GAU(nn.Module):
         total_len = 1
         for i in spatial_shape:
             total_len *= i
-        position = torch.reshape(
-            torch.arange(total_len, dtype=torch.float, device=x.device),
-            spatial_shape)
+
+        if self.kpt_structure:
+            position = torch.tensor(
+                [0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8],
+                dtype=torch.float,
+                device=x.device).reshape(spatial_shape)
+        else:
+            position = torch.reshape(
+                torch.arange(total_len, dtype=torch.int, device=x.device),
+                spatial_shape)
 
         for i in range(dim[-1] + 1, len(shape) - 1, 1):
             position = torch.unsqueeze(position, dim=-1)
@@ -77,16 +86,17 @@ class GAU(nn.Module):
         return torch.cat([x1 * cos - x2 * sin, x2 * cos + x1 * sin], dim=-1)
 
     def rel_pos_bias(self, seq_len):
-        if seq_len <= 512:
-            t = F.pad(self.w[:2 * seq_len - 1], [0, seq_len]).repeat(seq_len)
-            t = t[..., :-seq_len].reshape(-1, seq_len, 3 * seq_len - 2)
-            r = (2 * seq_len - 1) // 2
-            t = t[..., r:-r]
+        # if seq_len <= 512:
+        #     t = F.pad(self.w[:2 * seq_len - 1], [0, seq_len]).repeat(seq_len)
+        #     t = t[..., :-seq_len].reshape(-1, seq_len, 3 * seq_len - 2)
+        #     r = (2 * seq_len - 1) // 2
+        #     t = t[..., r:-r]
         # else:
-        #     # raise Exception("sequence length error.")
-        #     a = self.rope(self.a.repeat(seq_len, 1), dim=0)
-        #     b = self.rope(self.b.repeat(seq_len, 1), dim=0)
-        #     t = torch.einsum('mk,nk->mn', a, b)
+        # #     # raise Exception("sequence length error.")
+        a = self.rope(self.a.repeat(seq_len, 1), dim=0)
+        b = self.rope(self.b.repeat(seq_len, 1), dim=0)
+        # t = torch.einsum('bmk,bnk->bmn', a, b)
+        t = torch.bmm(a, b.permute(0, 2, 1))
         return t
 
     def forward(self, x):
@@ -343,7 +353,7 @@ class SAGAU(nn.Module):
 
 if __name__ == '__main__':
     m = torch.rand(4, 17, 128)
-    gau = SAGAU(17, 128, 128)
-    p = torch.rand(4, 17, 1)
-    res = gau(m, p)
+    gau = GAU(17, 128, 128)
+    # p = torch.rand(4, 17, 1)
+    res = gau(m)
     print(res.shape)
