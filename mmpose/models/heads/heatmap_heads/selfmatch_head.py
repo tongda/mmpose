@@ -198,8 +198,8 @@ class SelfMatchHead(BaseHead):
         # Define SimCC layers
         flatten_dims = self.heatmap_size[0] * self.heatmap_size[1]
 
-        # W = int(self.input_size[0] * self.simcc_split_ratio)
-        # H = int(self.input_size[1] * self.simcc_split_ratio)
+        W = int(self.input_size[0] * self.simcc_split_ratio)
+        H = int(self.input_size[1] * self.simcc_split_ratio)
 
         self.mlp = nn.Linear(flatten_dims, hidden_dims)
         coord_gau, kpt_gau = [], []
@@ -244,6 +244,8 @@ class SelfMatchHead(BaseHead):
                     hidden_dims,
                     hidden_dims,
                     use_dropout=use_dropout))
+        self.refine_x = nn.Linear(coord_dims, W)
+        self.refine_y = nn.Linear(coord_dims, H)
 
         self.kpt_x = nn.Sequential(*kpt_x)
         self.kpt_y = nn.Sequential(*kpt_y)
@@ -332,6 +334,9 @@ class SelfMatchHead(BaseHead):
         # B, 17, 512
         pred_x = torch.bmm(pred_x_token, coord_x_token.permute(0, 2, 1))
         pred_y = torch.bmm(pred_y_token, coord_y_token.permute(0, 2, 1))
+
+        pred_x = self.refine_x(pred_x)
+        pred_y = self.refine_y(pred_y)
 
         return pred_x, pred_y
 
