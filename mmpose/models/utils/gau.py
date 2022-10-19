@@ -490,14 +490,24 @@ class SAGAU(nn.Module):
 
 class KeypointCoordMatching(nn.Module):
 
-    def __init__(self, num_kpt, num_coord, hidden_dims=256):
+    def __init__(self, num_kpt, num_coord, hidden_dims=256, use_dropout=False):
         super(KeypointCoordMatching, self).__init__()
-        self.kpt_gau_encoder = GAU(num_kpt, hidden_dims, hidden_dims)
-        self.coord_gau_encoder = GAU(num_coord, hidden_dims, hidden_dims)
+        self.kpt_gau_encoder = GAU(
+            num_kpt, hidden_dims, hidden_dims, use_dropout=use_dropout)
+        self.coord_gau_encoder = GAU(
+            num_coord, hidden_dims, hidden_dims, use_dropout=use_dropout)
         self.kpt_gau_decoder = GAU(
-            num_kpt, hidden_dims, hidden_dims, self_attn=False)
+            num_kpt,
+            hidden_dims,
+            hidden_dims,
+            self_attn=False,
+            use_dropout=use_dropout)
         self.coord_gau_decoder = GAU(
-            num_coord, hidden_dims, hidden_dims, self_attn=False)
+            num_coord,
+            hidden_dims,
+            hidden_dims,
+            self_attn=False,
+            use_dropout=use_dropout)
 
     def forward(self, kpt_token, coord_token):
         kpt_token = self.kpt_gau_encoder(kpt_token)
