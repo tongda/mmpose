@@ -4,8 +4,9 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from einops import rearrange
-from torch import einsum
+
+# from einops import rearrange
+# from torch import einsum
 
 
 def padding_to_multiple_of(n, mult):
@@ -64,13 +65,15 @@ class T5RelativePositionBias(nn.Module):
         i, j, device = *x.shape[-2:], x.device
         q_pos = torch.arange(i, dtype=torch.long, device=device)
         k_pos = torch.arange(j, dtype=torch.long, device=device)
-        rel_pos = rearrange(k_pos, 'j -> 1 j') - rearrange(q_pos, 'i -> i 1')
+        # rel_pos = rearrange(k_pos, 'j -> 1 j') - rearrange(q_pos, 'i -> i 1')
+        rel_pos = k_pos.reshape(1, j) - q_pos.reshape(i, 1)
         rp_bucket = self._relative_position_bucket(
             rel_pos,
             num_buckets=self.num_buckets,
             max_distance=self.max_distance)
         values = self.relative_attention_bias(rp_bucket)
-        bias = rearrange(values, 'i j 1 -> i j')
+        # bias = rearrange(values, 'i j 1 -> i j')
+        bias = values.reshape(i, j)
         return bias * self.scale
 
 
@@ -83,7 +86,8 @@ class OffsetScale(nn.Module):
         nn.init.normal_(self.gamma, std=0.02)
 
     def forward(self, x):
-        out = einsum('... d, h d -> ... h d', x, self.gamma) + self.beta
+        # out = einsum('... d, h d -> ... h d', x, self.gamma) + self.beta
+        out = x.unsqueeze(2) * self.gamma[None, None, :] + self.beta
         return out.unbind(dim=-2)
 
 
@@ -112,7 +116,6 @@ class FLASH(nn.Module):
                  query_key_dim=128,
                  expansion_factor=2.,
                  dropout=0.,
-                 rotary_pos_emb=None,
                  norm_klass=nn.LayerNorm,
                  shift_tokens=False,
                  laplace_attn_fn=False,
@@ -126,8 +129,6 @@ class FLASH(nn.Module):
         ) if not laplace_attn_fn else LaplacianAttnFn()
 
         # positional embeddings
-
-        self.rotary_pos_emb = rotary_pos_emb
         self.rel_pos_bias = None
 
         # norm
@@ -235,14 +236,20 @@ class FLASH(nn.Module):
                 (quad_q, quad_k, lin_q, lin_k, v))
 
         # group along sequence
-
-        quad_q, quad_k, lin_q, lin_k, v = map(
-            lambda t: rearrange(t, 'b (g n) d -> b g n d', n=self.group_size),
-            (quad_q, quad_k, lin_q, lin_k, v))
+        b = quad_q.size(0)
+        # quad_q, quad_k, lin_q, lin_k, v = map(
+        #    lambda t: rearrange(t, 'b (g n) d -> b g n d', n=self.group_size),
+        #     (quad_q, quad_k, lin_q, lin_k, v))
+        quad_q = quad_q.reshape(b, -1, g, quad_q.size(-1))
+        quad_k = quad_k.reshape(b, -1, g, quad_k.size(-1))
+        lin_q = lin_q.reshape(b, -1, g, lin_q.size(-1))
+        lin_k = lin_k.reshape(b, -1, g, lin_k.size(-1))
+        v = v.reshape(b, -1, g, v.size(-1))
 
         # calculate quadratic attention output
 
-        sim = einsum('... i d, ... j d -> ... i j', quad_q, quad_k) / g
+        # sim = einsum('... i d, ... j d -> ... i j', quad_q, quad_k) / g
+        sim = torch.matmul(quad_q, quad_k.permute(0, 1, 3, 2)) / g
 
         if self.rel_pos_bias is not None:
             sim = sim + self.rel_pos_bias(sim)
@@ -250,23 +257,32 @@ class FLASH(nn.Module):
         attn = self.attn_fn(sim)
         attn = self.dropout(attn)
 
-        quad_out = einsum('... i j, ... j d -> ... i d', attn, v)
+        # quad_out = einsum('... i j, ... j d -> ... i d', attn, v)
+        quad_out = torch.matmul(attn, v)
 
         # calculate linear attention output
-        if self.reduce_group_non_causal_attn:
-            context_einsum_eq = 'b d e'
-        else:
-            context_einsum_eq = 'b g d e'
-        lin_kv = einsum(f'b g n d, b g n e -> {context_einsum_eq}', lin_k,
-                        v) / n
-        lin_out = einsum(f'b g n d, {context_einsum_eq} -> b g n e', lin_q,
-                         lin_kv)
+        # if self.reduce_group_non_causal_attn:
+        #     context_einsum_eq = 'b d e'
+        # else:
+        #     context_einsum_eq = 'b g d e'
+
+        # lin_kv = einsum(f'b g n d, b g n e -> {context_einsum_eq}', lin_k,
+        #                 v) / n
+        lin_kv = torch.bmm(
+            lin_k.reshape(b, -1, lin_k.size(-1)).permute(0, 2, 1),
+            v.reshape(b, -1, v.size(-1))) / n
+
+        # lin_out = einsum(f'b g n d, {context_einsum_eq} -> b g n e', lin_q,
+        #                  lin_kv)
+        lin_out = torch.matmul(lin_q, lin_kv.unsqueeze(1))
 
         # fold back groups into full sequence, and excise out padding
 
-        quad_attn_out, lin_attn_out = map(
-            lambda t: rearrange(t, 'b g n d -> b (g n) d')[:, :n],
-            (quad_out, lin_out))
+        # quad_attn_out, lin_attn_out = map(
+        #     lambda t: rearrange(t, 'b g n d -> b (g n) d')[:, :n],
+        #     (quad_out, lin_out))
+        quad_attn_out = quad_out.reshape(b, -1, quad_out.size(-1))[:, :n]
+        lin_attn_out = lin_out.reshape(b, -1, lin_out.size(-1))[:, :n]
 
         # gate
 
@@ -287,10 +303,11 @@ if __name__ == '__main__':
         group_size=128,
         query_key_dim=128,
         expansion_factor=2,
-        laplace_attn_fn=True)
+        laplace_attn_fn=True,
+        shift_tokens=True)
     res = flash(q)
     # res = gau((q, m, m))
     # res1, res2 = kc(q, m)
-    print(res)
+    # print(res)
     print(res.shape)
     # print(res1.shape, res2.shape)
