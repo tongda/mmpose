@@ -6,6 +6,19 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+class ScaleNorm(nn.Module):
+
+    def __init__(self, dim, eps=1e-5):
+        super().__init__()
+        self.scale = dim**-0.5
+        self.eps = eps
+        self.g = nn.Parameter(torch.ones(1))
+
+    def forward(self, x):
+        norm = torch.norm(x, dim=-1, keepdim=True) * self.scale
+        return x / norm.clamp(min=self.eps) * self.g
+
+
 class GAU(nn.Module):
 
     def __init__(self,
@@ -16,14 +29,14 @@ class GAU(nn.Module):
                  s=128,
                  eps=1e-5,
                  use_dropout=False,
-                 softmax_att=False,
+                 attn='relu2',
                  kpt_structure=False,
                  self_attn=True):
 
         super(GAU, self).__init__()
         self.s = s
         self.max_seq_length = max_seq_length
-        self.softmax_att = softmax_att
+        self.attn = attn
 
         self.e = int(hidden_size * expansion_factor)
         # self.w = nn.Parameter(
@@ -31,6 +44,7 @@ class GAU(nn.Module):
         # self.a = nn.Parameter(torch.rand([1, self.s], dtype=torch.float))
         # self.b = nn.Parameter(torch.rand([1, self.s], dtype=torch.float))
         self.o = nn.Linear(self.e, output_size)
+
         if self_attn:
             self.uv = nn.Linear(hidden_size, 2 * self.e + self.s)
             self.gamma = nn.Parameter(torch.rand((2, self.s)))
@@ -39,17 +53,30 @@ class GAU(nn.Module):
             self.uv = nn.Linear(hidden_size, self.e + self.s)
             self.k_fc = nn.Linear(hidden_size, self.s)
             self.v_fc = nn.Linear(hidden_size, self.e)
-        self.ln = nn.LayerNorm(hidden_size, eps=eps)
+
+        # self.ln = nn.LayerNorm(hidden_size, eps=eps)
+        self.ln = ScaleNorm(hidden_size, eps=eps)
         nn.init.xavier_uniform_(self.uv.weight)
+
         self.act_fn = nn.SiLU(True)
+
         self.use_shortcut = hidden_size == output_size
-        if softmax_att:
+
+        if attn == 'softmax':
             self.log_n = math.log(max_seq_length)
+        elif attn == 'laplacian':
+            self.mu = math.sqrt(0.5)
+            self.std = math.sqrt(0.25 * math.pi)
+
         self.sqrt_s = math.sqrt(s)
+
         self.use_dropout = use_dropout
+
         if use_dropout:
             self.dropout = nn.Dropout(0.2)
+
         self.kpt_structure = kpt_structure
+
         self.self_attn = self_attn
 
     def rope(self, x, dim):
@@ -67,7 +94,7 @@ class GAU(nn.Module):
         for i in spatial_shape:
             total_len *= i
 
-        if self.kpt_structure:
+        if self.kpt_structure and spatial_shape[0] == 17:
             position = torch.tensor(
                 [0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8],
                 dtype=torch.float,
@@ -127,11 +154,9 @@ class GAU(nn.Module):
         if self.self_attn:
             u, v, base = torch.split(
                 self.act_fn(uv), [self.e, self.e, self.s], dim=-1)
-            # print(base.shape, self.gamma.shape)
+
             # base1 = torch.einsum('...r, hr->...hr', base, self.gamma)
-            base = base.unsqueeze(2) * self.gamma[None, None, :]
-            # print(torch.sum(base1-base2))
-            base = base + self.beta
+            base = base.unsqueeze(2) * self.gamma[None, None, :] + self.beta
 
             base = self.rope(base, dim=1)
             q, k = torch.unbind(base, dim=-2)
@@ -149,9 +174,12 @@ class GAU(nn.Module):
         # bias = self.rel_pos_bias(
         # self.max_seq_length)[:, :q.size(1), :k.size(1)]
         # print('bias', bias.shape)
-        if self.softmax_att:
+        if self.attn == 'softmax':
             kernel = F.softmax(
                 self.log_n * self.max_seq_length * qk / self.sqrt_s, dim=-1)
+        elif self.attn == 'laplacian':
+            kernel = (1 + torch.special.erf(
+                (x - self.mu) / (self.std * math.sqrt(2)))) * 0.5
         else:
             kernel = torch.square(F.relu(qk / self.sqrt_s))
 
