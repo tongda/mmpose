@@ -2,6 +2,7 @@
 from .cpm_head import CPMHead
 from .gau_head import GAU_Head
 from .heatmap_head import HeatmapHead
+from .kcm_head import KCMHead
 from .kpt_coord_head import KptCoordHead
 from .mspn_head import MSPNHead
 from .selfmatch_head import SelfMatchHead
@@ -18,5 +19,5 @@ __all__ = [
     'HeatmapHead', 'CPMHead', 'MSPNHead', 'ViPNASHead', 'SimCCHead',
     'SimCC_RLE_Head', 'SimCC_GAP_FC', 'SimCC_IPR_Head',
     'SimCC_SamplingArgmax_Head', 'SimCC_GAU_Head', 'GAU_Head',
-    'SimCC_Proposal_Head', 'SelfMatchHead', 'KptCoordHead'
+    'SimCC_Proposal_Head', 'SelfMatchHead', 'KptCoordHead', 'KCMHead'
 ]
