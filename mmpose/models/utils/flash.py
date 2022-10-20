@@ -149,7 +149,7 @@ class FLASH(nn.Module):
         self.qk_offset_scale = OffsetScale(query_key_dim, heads=4)
         self.to_out = nn.Linear(hidden_dim, dim)
 
-    def rope(self, x, dim):
+    def rope(self, x, dim=1):
         """
         :param x: input tensor
         :param dim: operation dimension
@@ -244,7 +244,8 @@ class FLASH(nn.Module):
 
         sim = einsum('... i d, ... j d -> ... i j', quad_q, quad_k) / g
 
-        sim = sim + self.rel_pos_bias(sim)
+        if self.rel_pos_bias is not None:
+            sim = sim + self.rel_pos_bias(sim)
 
         attn = self.attn_fn(sim)
         attn = self.dropout(attn)
@@ -274,3 +275,22 @@ class FLASH(nn.Module):
         # projection out and residual
 
         return self.to_out(out) + x
+
+
+if __name__ == '__main__':
+    q = torch.rand(4, 17, 256)
+    # m = torch.rand(4, 512, 256)
+    # gau = GAU(17, 128, 128, self_attn=False)
+    # p = torch.rand(4, 17, 1)
+    flash = FLASH(
+        dim=256,
+        group_size=128,
+        query_key_dim=128,
+        expansion_factor=2,
+        laplace_attn_fn=True)
+    res = flash(q)
+    # res = gau((q, m, m))
+    # res1, res2 = kc(q, m)
+    print(res)
+    print(res.shape)
+    # print(res1.shape, res2.shape)
