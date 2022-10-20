@@ -31,12 +31,14 @@ class GAU(nn.Module):
                  use_dropout=False,
                  attn='relu2',
                  kpt_structure=False,
-                 self_attn=True):
+                 self_attn=True,
+                 shift=False):
 
         super(GAU, self).__init__()
         self.s = s
         self.max_seq_length = max_seq_length
         self.attn = attn
+        self.shift = shift
 
         self.e = int(hidden_size * expansion_factor)
         # self.w = nn.Parameter(
@@ -150,6 +152,12 @@ class GAU(nn.Module):
             shortcut = x
 
         x = self.ln(x)
+
+        if self.shift:
+            x_shift, x_pass = x.chunk(2, dim=-1)
+            x_shift = F.pad(x_shift, (0, 0, 1, -1), value=0.)
+            x = torch.cat((x_shift, x_pass), dim=-1)
+
         uv = self.uv(x)
         if self.self_attn:
             u, v, base = torch.split(
@@ -179,13 +187,13 @@ class GAU(nn.Module):
                 self.log_n * self.max_seq_length * qk / self.sqrt_s, dim=-1)
         elif self.attn == 'laplacian':
             kernel = (1 + torch.special.erf(
-                (x - self.mu) / (self.std * math.sqrt(2)))) * 0.5
+                (qk - self.mu) / (self.std * math.sqrt(2)))) * 0.5 / self.s
         else:
             kernel = torch.square(F.relu(qk / self.sqrt_s))
 
         if self.use_dropout:
             kernel = self.dropout(kernel)
-
+        print(kernel.shape)
         # x = u * torch.einsum('bnm, bme->bne', kernel, v)
         x = u * torch.bmm(kernel, v)
         # print(torch.sum(x-x2))
@@ -550,11 +558,12 @@ class KeypointCoordMatching(nn.Module):
 
 if __name__ == '__main__':
     q = torch.rand(4, 17, 256)
-    m = torch.rand(4, 512, 256)
-    # gau = GAU(17, 128, 128, self_attn=False)
+    # m = torch.rand(4, 512, 256)
+    gau = GAU(17, 256, 256, attn='laplacian', shift=True)
     # p = torch.rand(4, 17, 1)
-    kc = KeypointCoordMatching(17, 512)
-    # res = gau(m)
+    # kc = KeypointCoordMatching(17, 512)
+    res = gau(q)
+    print(res.shape)
     # res = gau((q, m, m))
-    res1, res2 = kc(q, m)
-    print(res1.shape, res2.shape)
+    # res1, res2 = kc(q, m)
+    # print(res1.shape, res2.shape)
