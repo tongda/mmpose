@@ -63,8 +63,8 @@ class T5RelativePositionBias(nn.Module):
 
     def forward(self, x):
         i, j, device = *x.shape[-2:], x.device
-        q_pos = torch.arange(i, dtype=torch.long, device=device)
-        k_pos = torch.arange(j, dtype=torch.long, device=device)
+        q_pos = torch.arange(i, dtype=torch.int, device=device)
+        k_pos = torch.arange(j, dtype=torch.int, device=device)
         # rel_pos = rearrange(k_pos, 'j -> 1 j') - rearrange(q_pos, 'i -> i 1')
         rel_pos = k_pos.reshape(1, j) - q_pos.reshape(i, 1)
         rp_bucket = self._relative_position_bucket(
@@ -174,7 +174,7 @@ class FLASH(nn.Module):
 
         half_size = shape[-1] // 2
         freq_seq = -torch.arange(
-            half_size, dtype=torch.float, device=x.device) / float(half_size)
+            half_size, dtype=torch.int, device=x.device) / float(half_size)
         inv_freq = 10000**-freq_seq
         # sinusoid = torch.einsum('...,d->...d', position, inv_freq)
         sinusoid = position[..., None] * inv_freq[None, None, :]

@@ -109,7 +109,7 @@ class GAU(nn.Module):
 
         half_size = shape[-1] // 2
         freq_seq = -torch.arange(
-            half_size, dtype=torch.float, device=x.device) / float(half_size)
+            half_size, dtype=torch.int, device=x.device) / float(half_size)
         inv_freq = 10000**-freq_seq
         # sinusoid = torch.einsum('...,d->...d', position, inv_freq)
         sinusoid = position[..., None] * inv_freq[None, None, :]
@@ -273,7 +273,7 @@ class GAUAlpha(nn.Module):
 
         half_size = shape[-1] // 2
         freq_seq = -torch.arange(
-            half_size, dtype=torch.float, device=x.device) / float(half_size)
+            half_size, dtype=torch.int, device=x.device) / float(half_size)
         inv_freq = 10000**-freq_seq
         # sinusoid = torch.einsum('...,d->...d', position, inv_freq)
         sinusoid = position[..., None] * inv_freq[None, None, :]
@@ -413,7 +413,7 @@ class SAGAU(nn.Module):
 
         if proposal is None:
             position = torch.reshape(
-                torch.arange(total_len, dtype=torch.float, device=x.device),
+                torch.arange(total_len, dtype=torch.int, device=x.device),
                 spatial_shape)
         else:
             position = proposal
@@ -423,7 +423,7 @@ class SAGAU(nn.Module):
 
         half_size = shape[-1] // 2
         freq_seq = -torch.arange(
-            half_size, dtype=torch.float, device=x.device) / float(half_size)
+            half_size, dtype=torch.int, device=x.device) / float(half_size)
         inv_freq = 10000**-freq_seq
         # sinusoid = torch.einsum('...,d->...d', position, inv_freq)
         if proposal is None:
@@ -457,7 +457,7 @@ class SAGAU(nn.Module):
         """Get the position embedding of proposal."""
         scale = 2 * math.pi
         dim_t = torch.arange(
-            num_pos_feats, dtype=torch.float32, device=proposals.device)
+            num_pos_feats, dtype=torch.int, device=proposals.device)
         dim_t = temperature**(2 * (dim_t // 2) / num_pos_feats)
         # N, L, 2
         proposals = proposals * scale
