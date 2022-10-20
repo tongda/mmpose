@@ -207,15 +207,15 @@ class KptCoordHead(BaseHead):
         self.mlp = nn.Linear(flatten_dims, hidden_dims)
         # self.coord_mlp = nn.Linear(flatten_dims, hidden_dims)
 
-        kpt_coord = []
-        for _ in range(num_global):
-            kpt_coord.append(
-                KeypointCoordMatching(
-                    self.out_channels,
-                    coord_dims,
-                    hidden_dims,
-                    use_dropout=use_dropout))
-        self.kpt_coord_global = nn.Sequential(*kpt_coord)
+        # kpt_coord = []
+        # for _ in range(num_global):
+        #     kpt_coord.append(
+        #         )
+        self.kpt_coord_global = KeypointCoordMatching(
+            self.out_channels,
+            coord_dims,
+            hidden_dims,
+            use_dropout=use_dropout)
 
         kpt_x, kpt_y = [], []
         coord_x, coord_y = [], []
@@ -249,16 +249,16 @@ class KptCoordHead(BaseHead):
         self.coord_x = nn.Sequential(*coord_x)
         self.coord_y = nn.Sequential(*coord_y)
 
-        kpt_coord_x, kpt_coord_y = [], []
-        for i in range(num_kc_split):
-            kpt_coord_x.append(
-                KeypointCoordMatching(
-                    self.out_channels,
-                    self.coord_dims,
-                    hidden_dims,
-                    use_dropout=use_dropout))
-        self.kpt_coord_x = nn.Sequential(*kpt_coord_x)
-        self.kpt_coord_y = nn.Sequential(*kpt_coord_y)
+        self.kpt_coord_x = KeypointCoordMatching(
+            self.out_channels,
+            self.coord_dims,
+            hidden_dims,
+            use_dropout=use_dropout)
+        self.kpt_coord_y = KeypointCoordMatching(
+            self.out_channels,
+            self.coord_dims,
+            hidden_dims,
+            use_dropout=use_dropout)
 
         self.refine_x = nn.Linear(coord_dims, W)
         self.refine_y = nn.Linear(coord_dims, H)

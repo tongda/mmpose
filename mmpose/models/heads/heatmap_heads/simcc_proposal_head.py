@@ -15,7 +15,7 @@ from mmpose.registry import KEYPOINT_CODECS, MODELS
 from mmpose.utils.tensor_utils import to_numpy
 from mmpose.utils.typing import (ConfigType, InstanceList, OptConfigType,
                                  OptSampleList)
-from ...utils.gau import GAU, SAGAU, GAUplus
+from ...utils.gau import GAU, SAGAU, GAUAlpha
 from ..base_head import BaseHead
 
 OptIntSeq = Optional[Sequence[int]]
@@ -104,8 +104,8 @@ class SimCC_Proposal_Head(BaseHead):
 
         if gau_type == 'SAGAU':
             GAU_module = SAGAU
-        elif gau_type == 'GAUplus':
-            GAU_module = GAUplus
+        elif gau_type == 'GAUAlpha':
+            GAU_module = GAUAlpha
         else:
             GAU_module = GAU
 

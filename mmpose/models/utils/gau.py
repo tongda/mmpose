@@ -26,8 +26,8 @@ class GAU(nn.Module):
         self.softmax_att = softmax_att
 
         self.e = int(hidden_size * expansion_factor)
-        self.w = nn.Parameter(
-            torch.rand([2 * max_seq_length - 1], dtype=torch.float))
+        # self.w = nn.Parameter(
+        #     torch.rand([2 * max_seq_length - 1], dtype=torch.float))
         # self.a = nn.Parameter(torch.rand([1, self.s], dtype=torch.float))
         # self.b = nn.Parameter(torch.rand([1, self.s], dtype=torch.float))
         self.o = nn.Linear(self.e, output_size)
@@ -140,6 +140,8 @@ class GAU(nn.Module):
             u, q = torch.split(self.act_fn(uv), [self.e, self.s], dim=-1)
             k = self.k_fc(k)
             v = self.v_fc(v)
+            q = self.rope(q, 1)
+            k = self.rope(k, 1)
 
         # qk = torch.einsum('bnd,bmd->bnm', q, k)
         qk = torch.bmm(q, k.permute(0, 2, 1))
