@@ -193,7 +193,7 @@ class GAU(nn.Module):
 
         if self.use_dropout:
             kernel = self.dropout(kernel)
-        print(kernel.shape)
+        # print(kernel.shape)
         # x = u * torch.einsum('bnm, bme->bne', kernel, v)
         x = u * torch.bmm(kernel, v)
         # print(torch.sum(x-x2))
@@ -556,14 +556,94 @@ class KeypointCoordMatching(nn.Module):
         return kpt_token, coord_token
 
 
+class KCM(nn.Module):
+
+    def __init__(self,
+                 kpt_dim,
+                 coord_dim,
+                 num_kpt_enc,
+                 num_coord_enc,
+                 num_kpt_dec,
+                 num_coord_dec,
+                 k2c=True,
+                 c2k=True,
+                 hidden_dims=256,
+                 s=128,
+                 use_dropout=False,
+                 shift=False,
+                 attn='relu2'):
+        super(KCM, self).__init__()
+        self.k2c = k2c
+        self.c2k = c2k
+        self.num_kpt_dec = num_kpt_dec
+
+        kpt_encoders = [
+            GAU(kpt_dim,
+                hidden_dims,
+                hidden_dims,
+                attn=attn,
+                shift=shift,
+                use_dropout=use_dropout,
+                s=s) for _ in range(num_kpt_enc)
+        ]
+        coord_encoders = [
+            GAU(coord_dim,
+                hidden_dims,
+                hidden_dims,
+                attn=attn,
+                shift=shift,
+                use_dropout=use_dropout,
+                s=s) for _ in range(num_coord_enc)
+        ]
+        self.kpt_encoder = nn.Sequential(*kpt_encoders)
+        self.coord_encoder = nn.Sequential(*coord_encoders)
+
+        kpt_decoders = [
+            GAU(kpt_dim,
+                hidden_dims,
+                hidden_dims,
+                self_attn=False,
+                attn=attn,
+                shift=shift,
+                use_dropout=use_dropout,
+                s=s) for _ in range(num_kpt_dec)
+        ]
+        coord_decoders = [
+            GAU(coord_dim,
+                hidden_dims,
+                hidden_dims,
+                self_attn=False,
+                attn=attn,
+                shift=shift,
+                use_dropout=use_dropout,
+                s=s) for _ in range(num_coord_dec)
+        ]
+        self.kpt_decoder = nn.ModuleList(kpt_decoders)
+        self.coord_decoder = nn.ModuleList(coord_decoders)
+
+    def forward(self, kpt_token, coord_token):
+        kpt_token = self.kpt_encoder(kpt_token)
+        coord_token = self.coord_encoder(coord_token)
+
+        for i in range(self.num_kpt_dec):
+            if self.k2c:
+                coord_token = self.coord_decoder[i](
+                    (coord_token, kpt_token, kpt_token))
+            if self.c2k:
+                kpt_token = self.kpt_decoder[i](
+                    (kpt_token, coord_token, coord_token))
+        return kpt_token, coord_token
+
+
 if __name__ == '__main__':
     q = torch.rand(4, 17, 256)
-    # m = torch.rand(4, 512, 256)
-    gau = GAU(17, 256, 256, attn='laplacian', shift=True)
+    m = torch.rand(4, 512, 256)
+    # gau = GAU(17, 256, 256, attn='laplacian', shift=True)
+    kc = KCM(17, 256, 1, 1, 1, 1, shift=True, attn='laplacian')
     # p = torch.rand(4, 17, 1)
     # kc = KeypointCoordMatching(17, 512)
-    res = gau(q)
-    print(res.shape)
+    # res = gau(q)
+    # print(res.shape)
     # res = gau((q, m, m))
-    # res1, res2 = kc(q, m)
-    # print(res1.shape, res2.shape)
+    res1, res2 = kc(q, m)
+    print(res1.shape, res2.shape)
