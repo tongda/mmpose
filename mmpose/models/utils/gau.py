@@ -598,28 +598,31 @@ class KCM(nn.Module):
         self.kpt_encoder = nn.Sequential(*kpt_encoders)
         self.coord_encoder = nn.Sequential(*coord_encoders)
 
-        kpt_decoders = [
-            GAU(kpt_dim,
-                hidden_dims,
-                hidden_dims,
-                self_attn=False,
-                attn=attn,
-                shift=shift,
-                use_dropout=use_dropout,
-                s=s) for _ in range(num_kpt_dec)
-        ]
-        coord_decoders = [
-            GAU(coord_dim,
-                hidden_dims,
-                hidden_dims,
-                self_attn=False,
-                attn=attn,
-                shift=shift,
-                use_dropout=use_dropout,
-                s=s) for _ in range(num_coord_dec)
-        ]
-        self.kpt_decoder = nn.ModuleList(kpt_decoders)
-        self.coord_decoder = nn.ModuleList(coord_decoders)
+        if self.c2k:
+            kpt_decoders = [
+                GAU(kpt_dim,
+                    hidden_dims,
+                    hidden_dims,
+                    self_attn=False,
+                    attn=attn,
+                    shift=shift,
+                    use_dropout=use_dropout,
+                    s=s) for _ in range(num_kpt_dec)
+            ]
+            self.kpt_decoder = nn.ModuleList(kpt_decoders)
+
+        if self.k2c:
+            coord_decoders = [
+                GAU(coord_dim,
+                    hidden_dims,
+                    hidden_dims,
+                    self_attn=False,
+                    attn=attn,
+                    shift=shift,
+                    use_dropout=use_dropout,
+                    s=s) for _ in range(num_coord_dec)
+            ]
+            self.coord_decoder = nn.ModuleList(coord_decoders)
 
     def forward(self, kpt_token, coord_token):
         kpt_token = self.kpt_encoder(kpt_token)
