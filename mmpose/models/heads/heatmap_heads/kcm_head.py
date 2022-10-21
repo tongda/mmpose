@@ -255,21 +255,6 @@ class KCMHead(BaseHead):
         self.mlp_coord_x = SE(hidden_dims)
         self.mlp_coord_y = SE(hidden_dims)
 
-        self.kcm_split = KCM(
-            out_channels,
-            coord_dims,
-            num_kpt_enc,
-            num_coord_enc,
-            num_kpt_dec,
-            num_coord_dec,
-            k2c,
-            c2k,
-            hidden_dims=hidden_dims,
-            s=s,
-            use_dropout=use_dropout,
-            shift=shift,
-            attn=attn)
-
         # self.refine_x = nn.Linear(coord_dims, W)
         # self.refine_y = nn.Linear(coord_dims, H)
         self.refine_x = DLinear(
