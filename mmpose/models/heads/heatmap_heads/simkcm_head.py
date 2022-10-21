@@ -13,7 +13,7 @@ from mmpose.registry import KEYPOINT_CODECS, MODELS
 from mmpose.utils.tensor_utils import to_numpy
 from mmpose.utils.typing import (ConfigType, InstanceList, OptConfigType,
                                  OptSampleList)
-from ...utils.gau import GAU, KCM
+from ...utils.gau import GAU
 from ..base_head import BaseHead
 
 OptIntSeq = Optional[Sequence[int]]
@@ -21,12 +21,12 @@ OptIntSeq = Optional[Sequence[int]]
 
 class SE(nn.Module):
 
-    def __init__(self, num_token, hidden_dims):
+    def __init__(self, num_token, in_channels, out_channels):
         super().__init__()
         # self.fc1 = nn.Linear(dims, dims)
         # self.fc_out = nn.Linear(dims, dims)
-        self.fc1 = GAU(num_token, hidden_dims, hidden_dims)
-        self.fc_out = GAU(num_token, hidden_dims, hidden_dims)
+        self.fc1 = GAU(num_token, in_channels, in_channels)
+        self.fc_out = GAU(num_token, in_channels, out_channels)
 
     def forward(self, x):
         w = self.fc1(x).sigmoid()
@@ -36,7 +36,7 @@ class SE(nn.Module):
 
 
 @MODELS.register_module()
-class KCMHead(BaseHead):
+class SimKCMHead(BaseHead):
     """Top-down heatmap head introduced in `SimCC`_ by Li et al (2022). The
     head is composed of a few deconvolutional layers followed by a fully-
     connected layer to generate 1d representation from low-resolution feature
@@ -108,13 +108,9 @@ class KCMHead(BaseHead):
         simcc_split_ratio: float = 2.0,
         hidden_dims: int = 256,
         coord_dims: int = 512,
-        num_kpt_enc: int = 1,
-        num_kpt_dec: int = 1,
-        num_coord_enc: int = 1,
-        num_coord_dec: int = 1,
+        num_enc: int = 1,
         s: int = 128,
-        k2c: bool = True,
-        c2k: bool = True,
+        dlinear: bool = False,
         shift: bool = True,
         attn: str = 'relu2',
         use_hilbert_flatten: bool = False,
@@ -152,12 +148,8 @@ class KCMHead(BaseHead):
         self.simcc_split_ratio = simcc_split_ratio
         self.use_hilbert_flatten = use_hilbert_flatten
         self.use_dropout = use_dropout
-        self.num_kpt_enc = num_kpt_enc
-        self.num_kpt_dec = num_kpt_dec
-        self.num_coord_enc = num_coord_enc
-        self.num_coord_dec = num_coord_dec
-        self.k2c = k2c
-        self.c2k = c2k
+        self.num_enc = num_enc
+        self.dlinear = dlinear
         self.s = s
         self.shift = shift
         self.attn = attn
@@ -204,7 +196,7 @@ class KCMHead(BaseHead):
                 cfg = dict(
                     type='Conv2d',
                     in_channels=in_channels,
-                    out_channels=out_channels + coord_dims,
+                    out_channels=out_channels,
                     kernel_size=1)
                 self.final_layer = build_conv_layer(cfg)
 
@@ -235,28 +227,28 @@ class KCMHead(BaseHead):
 
         self.mlp = nn.Linear(flatten_dims, hidden_dims)
 
-        self.kcm = KCM(
-            out_channels,
-            coord_dims,
-            num_kpt_enc,
-            num_coord_enc,
-            num_kpt_dec,
-            num_coord_dec,
-            k2c,
-            c2k,
-            hidden_dims=hidden_dims,
-            s=s,
-            use_dropout=use_dropout,
-            shift=shift,
-            attn=attn)
+        encoder = [
+            GAU(self.out_channels,
+                hidden_dims,
+                hidden_dims,
+                s=s,
+                use_dropout=use_dropout,
+                attn=attn,
+                shift=shift) for _ in range(self.num_enc)
+        ]
+        self.encoder = nn.Sequential(*encoder)
 
-        # self.mlp_x = SE(hidden_dims)
-        # self.mlp_y = SE(hidden_dims)
-        self.mlp_coord_x = SE(num_token=coord_dims, hidden_dims=hidden_dims)
-        self.mlp_coord_y = SE(num_token=coord_dims, hidden_dims=hidden_dims)
+        self.mlp_x = SE(
+            num_token=self.out_channels,
+            in_channels=hidden_dims,
+            out_channels=W)
+        self.mlp_y = SE(
+            num_token=self.out_channels,
+            in_channels=hidden_dims,
+            out_channels=H)
 
-        self.refine_x = nn.Linear(coord_dims, W)
-        self.refine_y = nn.Linear(coord_dims, H)
+        self.refine_x = nn.Linear(W, W)
+        self.refine_y = nn.Linear(H, H)
         # self.refine_x = DLinear(
         #     self.out_channels, coord_dims, W, individual=False)
         # self.refine_x = DLinear(
@@ -330,21 +322,12 @@ class KCMHead(BaseHead):
         if self.use_hilbert_flatten:
             feats = feats[:, :, self.hilbert_mapping]
 
-        feats = self.mlp(feats)  # B, 17+512, 256
+        feats = self.mlp(feats)  # B, 17, 256
 
-        kpt_feats = feats[:, :self.out_channels, :]
-        coord_feats = feats[:, self.out_channels:, :]
+        feats = self.encoder(feats)
 
-        kpt_feats, coord_feats = self.kcm(kpt_feats, coord_feats)
-
-        # pred_x_token, pred_y_token = torch.chunk(kpt_feats, 2, dim=-1)
-        # coord_x_token, coord_y_token = torch.chunk(coord_feats, 2, dim=-1)
-        coord_x_token = self.mlp_coord_x(coord_feats)
-        coord_y_token = self.mlp_coord_y(coord_feats)
-
-        # B, 17, 512
-        pred_x = torch.bmm(kpt_feats, coord_x_token.permute(0, 2, 1))
-        pred_y = torch.bmm(kpt_feats, coord_y_token.permute(0, 2, 1))
+        pred_x = self.mlp_x(feats)
+        pred_y = self.mlp_y(feats)
 
         pred_x = self.refine_x(pred_x)
         pred_y = self.refine_y(pred_y)
