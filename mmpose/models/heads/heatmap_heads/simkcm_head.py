@@ -112,6 +112,7 @@ class SimKCMHead(BaseHead):
         num_enc: int = 1,
         s: int = 128,
         dlinear: bool = False,
+        individual: bool = False,
         shift: bool = True,
         attn: str = 'relu2',
         use_hilbert_flatten: bool = False,
@@ -151,6 +152,7 @@ class SimKCMHead(BaseHead):
         self.use_dropout = use_dropout
         self.num_enc = num_enc
         self.dlinear = dlinear
+        self.individual = individual
         self.s = s
         self.shift = shift
         self.attn = attn
@@ -250,9 +252,9 @@ class SimKCMHead(BaseHead):
 
         if self.dlinear:
             self.refine_x = DLinear(
-                self.out_channels, coord_dims, W, individual=False)
-            self.refine_x = DLinear(
-                self.out_channels, coord_dims, H, individual=False)
+                self.out_channels, W, W, individual=self.individual)
+            self.refine_y = DLinear(
+                self.out_channels, H, H, individual=self.individual)
         else:
             self.refine_x = nn.Linear(W, W)
             self.refine_y = nn.Linear(H, H)
