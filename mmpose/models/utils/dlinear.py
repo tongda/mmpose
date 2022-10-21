@@ -41,14 +41,21 @@ class series_decomp(nn.Module):
 class DLinear(nn.Module):
     """Decomposition-Linear."""
 
-    def __init__(self, num_token, in_channels, out_channels, individual=True):
+    def __init__(self,
+                 num_token,
+                 in_channels,
+                 out_channels,
+                 sigma=6,
+                 individual=True):
         super(DLinear, self).__init__()
         self.num_token = num_token
         self.in_channels = in_channels
         self.out_channels = out_channels
 
         # Decompsition Kernel Size
-        kernel_size = 25
+        kernel_size = int((sigma * 20 - 7) // 3)
+        kernel_size -= int((kernel_size % 2) == 0)
+        # kernel_size = 25
         self.decompsition = series_decomp(kernel_size)
         self.individual = individual
 
@@ -68,10 +75,8 @@ class DLinear(nn.Module):
             self.Linear_Trend = nn.Linear(self.in_channels, self.out_channels)
 
     def forward(self, x):
-        # x: [Batch, Input length, Channel]
         seasonal_init, trend_init = self.decompsition(x)
-        seasonal_init, trend_init = seasonal_init.permute(
-            0, 2, 1), trend_init.permute(0, 2, 1)
+
         if self.individual:
             seasonal_output = torch.zeros([
                 seasonal_init.size(0),
@@ -93,4 +98,4 @@ class DLinear(nn.Module):
             trend_output = self.Linear_Trend(trend_init)
 
         x = seasonal_output + trend_output
-        return x.permute(0, 2, 1)  # to [Batch, Output length, Channel]
+        return x

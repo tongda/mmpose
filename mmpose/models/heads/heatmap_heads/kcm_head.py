@@ -7,6 +7,7 @@ from mmcv.cnn import build_conv_layer
 from torch import Tensor, nn
 
 from mmpose.evaluation.functional import simcc_pck_accuracy
+from mmpose.models.utils.dlinear import DLinear
 from mmpose.models.utils.tta import flip_vectors
 from mmpose.registry import KEYPOINT_CODECS, MODELS
 from mmpose.utils.tensor_utils import to_numpy
@@ -269,8 +270,12 @@ class KCMHead(BaseHead):
             shift=shift,
             attn=attn)
 
-        self.refine_x = nn.Linear(coord_dims, W)
-        self.refine_y = nn.Linear(coord_dims, H)
+        # self.refine_x = nn.Linear(coord_dims, W)
+        # self.refine_y = nn.Linear(coord_dims, H)
+        self.refine_x = DLinear(
+            self.out_channels, coord_dims, W, individual=False)
+        self.refine_x = DLinear(
+            self.out_channels, coord_dims, H, individual=False)
 
     def _make_deconv_head(self,
                           in_channels: Union[int, Sequence[int]],
