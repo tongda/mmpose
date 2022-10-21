@@ -13,6 +13,7 @@ from mmpose.registry import KEYPOINT_CODECS, MODELS
 from mmpose.utils.tensor_utils import to_numpy
 from mmpose.utils.typing import (ConfigType, InstanceList, OptConfigType,
                                  OptSampleList)
+from ...utils.dlinear import DLinear
 from ...utils.gau import GAU
 from ..base_head import BaseHead
 
@@ -247,12 +248,14 @@ class SimKCMHead(BaseHead):
             in_channels=hidden_dims,
             out_channels=H)
 
-        self.refine_x = nn.Linear(W, W)
-        self.refine_y = nn.Linear(H, H)
-        # self.refine_x = DLinear(
-        #     self.out_channels, coord_dims, W, individual=False)
-        # self.refine_x = DLinear(
-        #     self.out_channels, coord_dims, H, individual=False)
+        if self.dlinear:
+            self.refine_x = DLinear(
+                self.out_channels, coord_dims, W, individual=False)
+            self.refine_x = DLinear(
+                self.out_channels, coord_dims, H, individual=False)
+        else:
+            self.refine_x = nn.Linear(W, W)
+            self.refine_y = nn.Linear(H, H)
 
     def _make_deconv_head(self,
                           in_channels: Union[int, Sequence[int]],
