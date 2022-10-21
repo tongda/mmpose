@@ -12,10 +12,26 @@ from mmpose.registry import KEYPOINT_CODECS, MODELS
 from mmpose.utils.tensor_utils import to_numpy
 from mmpose.utils.typing import (ConfigType, InstanceList, OptConfigType,
                                  OptSampleList)
-from ...utils.gau import KCM
+from ...utils.gau import GAU, KCM
 from ..base_head import BaseHead
 
 OptIntSeq = Optional[Sequence[int]]
+
+
+class SE(nn.Module):
+
+    def __init__(self, num_token, hidden_dims):
+        super().__init__()
+        # self.fc1 = nn.Linear(dims, dims)
+        # self.fc_out = nn.Linear(dims, dims)
+        self.fc1 = GAU(num_token, hidden_dims, hidden_dims)
+        self.fc_out = GAU(num_token, hidden_dims, hidden_dims)
+
+    def forward(self, x):
+        w = self.fc1(x).sigmoid()
+        x = x * w
+        x = self.fc_out(x)
+        return x
 
 
 @MODELS.register_module()
@@ -233,6 +249,26 @@ class KCMHead(BaseHead):
             shift=shift,
             attn=attn)
 
+        # self.mlp_x = SE(hidden_dims)
+        # self.mlp_y = SE(hidden_dims)
+        self.mlp_coord_x = SE(hidden_dims)
+        self.mlp_coord_y = SE(hidden_dims)
+
+        self.kcm_split = KCM(
+            out_channels,
+            coord_dims,
+            num_kpt_enc,
+            num_coord_enc,
+            num_kpt_dec,
+            num_coord_dec,
+            k2c,
+            c2k,
+            hidden_dims=hidden_dims,
+            s=s,
+            use_dropout=use_dropout,
+            shift=shift,
+            attn=attn)
+
         self.refine_x = nn.Linear(coord_dims, W)
         self.refine_y = nn.Linear(coord_dims, H)
 
@@ -311,11 +347,14 @@ class KCMHead(BaseHead):
 
         kpt_feats, coord_feats = self.kcm(kpt_feats, coord_feats)
 
-        pred_x_token, pred_y_token = torch.chunk(kpt_feats, 2, dim=-1)
-        coord_x_token, coord_y_token = torch.chunk(coord_feats, 2, dim=-1)
+        # pred_x_token, pred_y_token = torch.chunk(kpt_feats, 2, dim=-1)
+        # coord_x_token, coord_y_token = torch.chunk(coord_feats, 2, dim=-1)
+        coord_x_token = self.mlp_coord_x(coord_feats)
+        coord_y_token = self.mlp_coord_y(coord_feats)
+
         # B, 17, 512
-        pred_x = torch.bmm(pred_x_token, coord_x_token.permute(0, 2, 1))
-        pred_y = torch.bmm(pred_y_token, coord_y_token.permute(0, 2, 1))
+        pred_x = torch.bmm(kpt_feats, coord_x_token.permute(0, 2, 1))
+        pred_y = torch.bmm(kpt_feats, coord_y_token.permute(0, 2, 1))
 
         pred_x = self.refine_x(pred_x)
         pred_y = self.refine_y(pred_y)
