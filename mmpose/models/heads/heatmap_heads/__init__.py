@@ -14,6 +14,7 @@ from .simcc_proposal_head import SimCC_Proposal_Head
 from .simcc_rle_head import SimCC_RLE_Head
 from .simcc_sampling_head import SimCC_SamplingArgmax_Head
 from .simkcm_head import SimKCMHead
+from .simkcm_sigma_head import SimKCM_Sigma_Head
 from .vipnas_head import ViPNASHead
 
 __all__ = [
@@ -21,5 +22,5 @@ __all__ = [
     'SimCC_RLE_Head', 'SimCC_GAP_FC', 'SimCC_IPR_Head',
     'SimCC_SamplingArgmax_Head', 'SimCC_GAU_Head', 'GAU_Head',
     'SimCC_Proposal_Head', 'SelfMatchHead', 'KptCoordHead', 'KCMHead',
-    'SimKCMHead'
+    'SimKCMHead', 'SimKCM_Sigma_Head'
 ]

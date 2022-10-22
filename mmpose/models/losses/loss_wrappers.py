@@ -13,9 +13,10 @@ class MultipleLossWrapper(nn.Module):
         losses (list): List of Loss Config
     """
 
-    def __init__(self, losses: list):
+    def __init__(self, losses: list, sum_up: bool = False):
         super().__init__()
         self.num_losses = len(losses)
+        self.sum_up = sum_up
 
         loss_modules = []
         for loss_cfg in losses:
@@ -33,5 +34,6 @@ class MultipleLossWrapper(nn.Module):
 
             loss_i = self.loss_modules[i](input_i, target_i, keypoint_weights)
             losses.append(loss_i)
-
+        if self.sum_up:
+            losses = sum(losses)
         return losses

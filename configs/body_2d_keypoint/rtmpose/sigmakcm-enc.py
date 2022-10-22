@@ -53,28 +53,8 @@ model = dict(
             checkpoint='https://download.openmmlab.com/mmpose/top_down/'
             'mobilenetv2/mobilenetv2_coco_256x192-d1e58e7b_20200727.pth',
         )),
-    # backbone=dict(
-    #     type='LiteHRNet',
-    #     in_channels=3,
-    #     extra=dict(
-    #         stem=dict(stem_channels=32, out_channels=32, expand_ratio=1),
-    #         num_stages=3,
-    #         stages_spec=dict(
-    #             num_modules=(1, 1, 1),
-    #             num_branches=(2, 3, 4),
-    #             num_blocks=(2, 2, 2),
-    #             module_type=('LITE', 'LITE', 'LITE'),
-    #             with_fuse=(True, True, True),
-    #             reduce_ratios=(8, 8, 8),
-    #             num_channels=(
-    #                 (44, 88),
-    #                 (44, 88, 176),
-    #                 (44, 88, 176, 352),
-    #             )),
-    #         with_head=True,
-    #     )),
     head=dict(
-        type='SimKCMHead',
+        type='SimKCM_Sigma_Head',
         in_channels=320,
         out_channels=17,
         input_size=codec['input_size'],
@@ -95,14 +75,7 @@ model = dict(
         #     use_target_weight=True,
         #     beta=10.,
         #     use_softmax=True),
-        loss=dict(
-            type='MultipleLossWrapper',
-            losses=[
-                dict(type='KeypointMSELoss', use_target_weight=True),
-                dict(type='KeypointMSELoss', use_target_weight=True),
-            ],
-            sum_up=True,
-        ),
+        loss=dict(type='BalancedMSELoss', use_target_weight=True),
         decoder=codec),
     test_cfg=dict(flip_test=True, ))
 

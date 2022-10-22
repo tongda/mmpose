@@ -38,7 +38,7 @@ class SE(nn.Module):
 
 
 @MODELS.register_module()
-class SimKCMHead(BaseHead):
+class SimKCM_Sigma_Head(BaseHead):
     """Top-down heatmap head introduced in `SimCC`_ by Li et al (2022). The
     head is composed of a few deconvolutional layers followed by a fully-
     connected layer to generate 1d representation from low-resolution feature
@@ -267,6 +267,9 @@ class SimKCMHead(BaseHead):
             self.refine_x = nn.Linear(W, W)
             self.refine_y = nn.Linear(H, H)
 
+        self.sigma_x = nn.Linear(hidden_dims, W)
+        self.sigma_y = nn.Linear(hidden_dims, H)
+
     def _make_deconv_head(self,
                           in_channels: Union[int, Sequence[int]],
                           out_channels: int,
@@ -342,10 +345,12 @@ class SimKCMHead(BaseHead):
         pred_x = self.mlp_x(feats)
         pred_y = self.mlp_y(feats)
 
+        sigma_x, sigma_y = self.sigma_x(feats), self.sigma_y(feats)
+
         pred_x = self.refine_x(pred_x)
         pred_y = self.refine_y(pred_y)
 
-        return pred_x, pred_y
+        return pred_x, pred_y, sigma_x, sigma_y
 
     def predict(
         self,
@@ -384,9 +389,10 @@ class SimKCMHead(BaseHead):
             flip_indices = batch_data_samples[0].metainfo['flip_indices']
             _feats, _feats_flip = feats
 
-            _batch_pred_x, _batch_pred_y = self.forward(_feats)
+            _batch_pred_x, _batch_pred_y, _, _ = self.forward(_feats)
 
-            _batch_pred_x_flip, _batch_pred_y_flip = self.forward(_feats_flip)
+            _batch_pred_x_flip, _batch_pred_y_flip, _, _ = self.forward(
+                _feats_flip)
             _batch_pred_x_flip, _batch_pred_y_flip = flip_vectors(
                 _batch_pred_x_flip,
                 _batch_pred_y_flip,
@@ -395,7 +401,7 @@ class SimKCMHead(BaseHead):
             batch_pred_x = (_batch_pred_x + _batch_pred_x_flip) * 0.5
             batch_pred_y = (_batch_pred_y + _batch_pred_y_flip) * 0.5
         else:
-            batch_pred_x, batch_pred_y = self.forward(feats)
+            batch_pred_x, batch_pred_y, _, _ = self.forward(feats)
 
         preds = self.decode((batch_pred_x, batch_pred_y))
 
@@ -417,7 +423,7 @@ class SimKCMHead(BaseHead):
     ) -> dict:
         """Calculate losses from a batch of inputs and data samples."""
 
-        pred_x, pred_y = self.forward(feats)
+        pred_x, pred_y, sigma_x, sigma_y = self.forward(feats)
 
         gt_x = torch.cat([
             d.gt_instance_labels.keypoint_x_labels for d in batch_data_samples
@@ -440,7 +446,8 @@ class SimKCMHead(BaseHead):
 
         # calculate losses
         losses = dict()
-        loss = self.loss_module(pred_simcc, gt_simcc, keypoint_weights)
+        loss = self.loss_module(pred_x, gt_x, sigma_x, keypoint_weights)
+        loss += self.loss_module(pred_y, gt_y, sigma_y, keypoint_weights)
 
         losses.update(loss_kpt=loss)
 

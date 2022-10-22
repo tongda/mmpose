@@ -1,10 +1,71 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch import Tensor
 
 from mmpose.models.losses import GIoULoss
 from mmpose.registry import MODELS
+
+
+@MODELS.register_module()
+class BalancedMSELoss(nn.Module):
+    """Balanced MSE loss for heatmaps.
+
+    Args:
+        use_target_weight (bool): Option to use weighted MSE loss.
+            Different joint types may have different target weights.
+            Defaults to ``False``
+        loss_weight (float): Weight of the loss. Defaults to 1.0
+    """
+
+    def __init__(self,
+                 use_target_weight: bool = False,
+                 loss_weight: float = 1.):
+        super().__init__()
+        # self.criterion = nn.MSELoss()
+        self.use_target_weight = use_target_weight
+        self.loss_weight = loss_weight
+
+    def criterion(self, pred, target, sigma):
+        logits = -(pred - target).pow(2) / (2 * sigma)
+        loss = F.cross_entropy(logits, torch.arange(pred.size(0)))
+        loss = loss * (2 * sigma).detach()
+        return loss
+
+    def forward(self, output: Tensor, target: Tensor, sigma: Tensor,
+                target_weights: Tensor) -> Tensor:
+        """Forward function of loss.
+
+        Note:
+            - batch_size: B
+            - num_keypoints: K
+            - heatmaps height: H
+            - heatmaps weight: W
+
+        Args:
+            output (Tensor): The output heatmaps with shape [B, K, H, W].
+            target (Tensor): The target heatmaps with shape [B, K, H, W].
+            target_weights (Tensor): The target weights of differet keypoints,
+                with shape [B, K].
+
+        Returns:
+            Tensor: The calculated loss.
+        """
+        if self.use_target_weight:
+            assert target_weights is not None
+            assert output.ndim >= target_weights.ndim
+
+            for i in range(output.ndim - target_weights.ndim):
+                target_weights = target_weights.unsqueeze(-1)
+
+            loss = self.criterion(output * target_weights,
+                                  target * target_weights,
+                                  sigma * target_weights)
+        else:
+            loss = self.criterion(output, target, sigma)
+
+        return loss * self.loss_weight
 
 
 @MODELS.register_module()

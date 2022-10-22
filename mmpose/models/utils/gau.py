@@ -75,7 +75,7 @@ class GAU(nn.Module):
         self.use_dropout = use_dropout
 
         if use_dropout:
-            self.dropout = nn.Dropout(0.2)
+            self.dropout = nn.Dropout(0.3)
 
         self.kpt_structure = kpt_structure
 
