@@ -27,10 +27,62 @@ class BalancedMSELoss(nn.Module):
         self.use_target_weight = use_target_weight
         self.loss_weight = loss_weight
 
+    def bmse_b(self, pred, target, sigma):
+        # B, K, W
+        pred = pred.permute(2, 1, 0).unsqueeze(-1)  # W, K, B, 1
+        target = target.permute(2, 1, 0).unsqueeze(-1)
+        sigma = sigma.permute(2, 1, 0).unsqueeze(-1)
+        logits = -(pred - target.permute(0, 1, 3, 2)).pow(2) / (2 * sigma**2 +
+                                                                1e-9)
+
+        # W, K, B, B
+        logits = logits.reshape(-1, pred.size(-2))  # W*K*B, B
+        targets = torch.arange(logits.size(-1)).repeat(
+            pred.size(0) * pred.size(1)).to(pred.device)
+        loss = F.cross_entropy(logits, targets)
+        # logits
+        loss = loss * (2 * sigma**2).detach()
+        return loss.mean()
+
+    def bmse_k(self, pred, target, sigma):
+        # B, K, W
+        pred = pred.permute(0, 2, 1).unsqueeze(-1)  # B, W, K, 1
+        target = target.permute(0, 2, 1).unsqueeze(-1)
+        sigma = sigma.permute(0, 2, 1).unsqueeze(-1)
+        logits = -(pred - target.permute(0, 1, 3, 2)).pow(2) / (2 * sigma**2 +
+                                                                1e-9)
+
+        # B, W, K, K
+        logits = logits.reshape(-1, pred.size(-2))  # B*W*K, K
+        targets = torch.arange(logits.size(-1)).repeat(
+            pred.size(0) * pred.size(1)).to(pred.device)
+        loss = F.cross_entropy(logits, targets)
+        # logits
+        loss = loss * (2 * sigma**2).detach()
+        return loss.mean()
+
+    def bmse_w(self, pred, target, sigma):
+        # B, K, W
+        pred = pred.unsqueeze(-1)  # B, K, W, 1
+        target = target.unsqueeze(-1)
+        sigma = sigma.unsqueeze(-1)
+        logits = -(pred - target.permute(0, 1, 3, 2)).pow(2) / (2 * sigma**2 +
+                                                                1e-9)
+
+        # B, K, W, W
+        logits = logits.reshape(-1, pred.size(-2))  # B*K*W, W
+        targets = torch.arange(logits.size(-1)).repeat(
+            pred.size(0) * pred.size(1)).to(pred.device)
+        loss = F.cross_entropy(logits, targets)
+        # logits
+        loss = loss * (2 * sigma**2).detach()
+        return loss.mean()
+
     def criterion(self, pred, target, sigma):
-        logits = -(pred - target).pow(2) / (2 * sigma)
-        loss = F.cross_entropy(logits, torch.arange(pred.size(0)))
-        loss = loss * (2 * sigma).detach()
+        # B, K, W
+        loss = self.bmse_b(pred, target, sigma)
+        # loss = self.bmse_k(pred, target, sigma)
+        # loss = self.bmse_w(pred, target, sigma)
         return loss
 
     def forward(self, output: Tensor, target: Tensor, sigma: Tensor,

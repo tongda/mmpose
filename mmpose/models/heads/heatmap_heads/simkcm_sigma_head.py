@@ -109,8 +109,8 @@ class SimKCM_Sigma_Head(BaseHead):
         in_featuremap_size: Tuple[int, int],
         simcc_split_ratio: float = 2.0,
         hidden_dims: int = 256,
-        coord_dims: int = 512,
         num_enc: int = 1,
+        rdrop: bool = False,
         s: int = 128,
         dlinear: bool = False,
         individual: bool = False,
@@ -152,12 +152,12 @@ class SimKCM_Sigma_Head(BaseHead):
         self.use_hilbert_flatten = use_hilbert_flatten
         self.use_dropout = use_dropout
         self.num_enc = num_enc
+        self.rdrop = rdrop
         self.dlinear = dlinear
         self.individual = individual
         self.s = s
         self.shift = shift
         self.attn = attn
-        self.coord_dims = coord_dims
         self.align_corners = align_corners
         self.input_transform = input_transform
         self.input_index = input_index
@@ -315,17 +315,7 @@ class SimKCM_Sigma_Head(BaseHead):
 
         return deconv_head
 
-    def forward(self, feats: Tuple[Tensor]) -> Tuple[Tensor, Tensor]:
-        """Forward the network. The input is multi scale feature maps and the
-        output is the heatmap.
-
-        Args:
-            feats (Tuple[Tensor]): Multi scale feature maps.
-
-        Returns:
-            pred_x (Tensor): 1d representation of x.
-            pred_y (Tensor): 1d representation of y.
-        """
+    def _forward(self, feats):
         if self.deconv_head is None:
             feats = self._transform_inputs(feats)
             if self.final_layer is not None:
@@ -345,10 +335,36 @@ class SimKCM_Sigma_Head(BaseHead):
         pred_x = self.mlp_x(feats)
         pred_y = self.mlp_y(feats)
 
-        sigma_x, sigma_y = self.sigma_x(feats), self.sigma_y(feats)
+        sigma_x, sigma_y = self.sigma_x(feats).sigmoid(), self.sigma_y(
+            feats).sigmoid()
 
         pred_x = self.refine_x(pred_x)
         pred_y = self.refine_y(pred_y)
+
+        return pred_x, pred_y, sigma_x, sigma_y
+
+    def forward(self, feats: Tuple[Tensor]) -> Tuple[Tensor, Tensor]:
+        """Forward the network. The input is multi scale feature maps and the
+        output is the heatmap.
+
+        Args:
+            feats (Tuple[Tensor]): Multi scale feature maps.
+
+        Returns:
+            pred_x (Tensor): 1d representation of x.
+            pred_y (Tensor): 1d representation of y.
+        """
+        if self.rdrop and self.training:
+            feats_copy = feats.clone()
+            pred_x2, pred_y2, sigma_x2, sigma_y2 = self._forward(feats_copy)
+
+        pred_x, pred_y, sigma_x, sigma_y = self._forward(feats)
+
+        if self.rdrop and self.training:
+            pred_x = (pred_x, pred_x2)
+            pred_y = (pred_y, pred_y2)
+            sigma_x = (sigma_x, sigma_x2)
+            sigma_y = (sigma_x, sigma_y2)
 
         return pred_x, pred_y, sigma_x, sigma_y
 
@@ -425,6 +441,12 @@ class SimKCM_Sigma_Head(BaseHead):
 
         pred_x, pred_y, sigma_x, sigma_y = self.forward(feats)
 
+        if self.rdrop:
+            pred_x, pred_x2 = pred_x
+            pred_y, pred_y2 = pred_y
+            sigma_x, sigma_x2 = sigma_x
+            sigma_y, sigma_y2 = sigma_y
+
         gt_x = torch.cat([
             d.gt_instance_labels.keypoint_x_labels for d in batch_data_samples
         ],
@@ -448,6 +470,17 @@ class SimKCM_Sigma_Head(BaseHead):
         losses = dict()
         loss = self.loss_module(pred_x, gt_x, sigma_x, keypoint_weights)
         loss += self.loss_module(pred_y, gt_y, sigma_y, keypoint_weights)
+
+        if self.rdrop:
+            loss += self.loss_module(pred_x2, gt_x, sigma_x2, keypoint_weights)
+            loss += self.loss_module(pred_y2, gt_y, sigma_y2, keypoint_weights)
+            loss *= 0.5
+            kl_loss = self.loss_module(pred_x, pred_x2, sigma_x,
+                                       keypoint_weights)
+            kl_loss += self.loss_module(pred_x2, pred_x, sigma_x2,
+                                        keypoint_weights)
+            kl_loss = kl_loss * 0.5
+            loss += 5 * kl_loss
 
         losses.update(loss_kpt=loss)
 
