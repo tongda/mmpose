@@ -316,18 +316,6 @@ class SimKCM_Sigma_Head(BaseHead):
         return deconv_head
 
     def _forward(self, feats):
-        if self.deconv_head is None:
-            feats = self._transform_inputs(feats)
-            if self.final_layer is not None:
-                feats = self.final_layer(feats)
-        else:
-            feats = self.deconv_head(feats)
-
-        # flatten the output heatmap
-        feats = torch.flatten(feats, 2)
-        if self.use_hilbert_flatten:
-            feats = feats[:, :, self.hilbert_mapping]
-
         feats = self.mlp(feats)  # B, 17, 256
 
         feats = self.encoder(feats)
@@ -354,6 +342,18 @@ class SimKCM_Sigma_Head(BaseHead):
             pred_x (Tensor): 1d representation of x.
             pred_y (Tensor): 1d representation of y.
         """
+        if self.deconv_head is None:
+            feats = self._transform_inputs(feats)
+            if self.final_layer is not None:
+                feats = self.final_layer(feats)
+        else:
+            feats = self.deconv_head(feats)
+
+        # flatten the output heatmap
+        feats = torch.flatten(feats, 2)
+        if self.use_hilbert_flatten:
+            feats = feats[:, :, self.hilbert_mapping]
+
         if self.rdrop and self.training:
             feats_copy = feats.clone()
             pred_x2, pred_y2, sigma_x2, sigma_y2 = self._forward(feats_copy)

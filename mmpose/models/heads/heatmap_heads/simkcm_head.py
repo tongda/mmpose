@@ -111,6 +111,7 @@ class SimKCMHead(BaseHead):
         hidden_dims: int = 256,
         coord_dims: int = 512,
         num_enc: int = 1,
+        rdrop: bool = False,
         s: int = 128,
         dlinear: bool = False,
         individual: bool = False,
@@ -151,6 +152,7 @@ class SimKCMHead(BaseHead):
         self.simcc_split_ratio = simcc_split_ratio
         self.use_hilbert_flatten = use_hilbert_flatten
         self.use_dropout = use_dropout
+        self.rdrop = rdrop
         self.num_enc = num_enc
         self.dlinear = dlinear
         self.individual = individual
@@ -312,6 +314,19 @@ class SimKCMHead(BaseHead):
 
         return deconv_head
 
+    def _forward(self, feats):
+        feats = self.mlp(feats)  # B, 17, 256
+
+        feats = self.encoder(feats)
+
+        pred_x = self.mlp_x(feats)
+        pred_y = self.mlp_y(feats)
+
+        pred_x = self.refine_x(pred_x)
+        pred_y = self.refine_y(pred_y)
+
+        return pred_x, pred_y
+
     def forward(self, feats: Tuple[Tensor]) -> Tuple[Tensor, Tensor]:
         """Forward the network. The input is multi scale feature maps and the
         output is the heatmap.
@@ -335,15 +350,15 @@ class SimKCMHead(BaseHead):
         if self.use_hilbert_flatten:
             feats = feats[:, :, self.hilbert_mapping]
 
-        feats = self.mlp(feats)  # B, 17, 256
+        if self.rdrop and self.training:
+            feats_copy = feats.clone()
+            pred_x2, pred_y2 = self._forward(feats_copy)
 
-        feats = self.encoder(feats)
+        pred_x, pred_y = self._forward(feats_copy)
 
-        pred_x = self.mlp_x(feats)
-        pred_y = self.mlp_y(feats)
-
-        pred_x = self.refine_x(pred_x)
-        pred_y = self.refine_y(pred_y)
+        if self.rdrop and self.training:
+            pred_x = (pred_x, pred_x2)
+            pred_y = (pred_y, pred_y2)
 
         return pred_x, pred_y
 
@@ -419,6 +434,10 @@ class SimKCMHead(BaseHead):
 
         pred_x, pred_y = self.forward(feats)
 
+        if self.rdrop:
+            pred_x, pred_x2 = pred_x
+            pred_y, pred_y2 = pred_y
+
         gt_x = torch.cat([
             d.gt_instance_labels.keypoint_x_labels for d in batch_data_samples
         ],
@@ -441,6 +460,17 @@ class SimKCMHead(BaseHead):
         # calculate losses
         losses = dict()
         loss = self.loss_module(pred_simcc, gt_simcc, keypoint_weights)
+
+        if self.rdrop:
+            pred_simcc2 = (pred_x2, pred_y2)
+            loss += self.loss_module(pred_simcc2, gt_simcc, keypoint_weights)
+            loss *= 0.5
+            kl_loss = self.loss_module(pred_simcc, pred_simcc2,
+                                       keypoint_weights)
+            kl_loss += self.loss_module(pred_simcc2, pred_simcc,
+                                        keypoint_weights)
+            kl_loss = kl_loss * 0.5
+            loss += 5 * kl_loss
 
         losses.update(loss_kpt=loss)
 
