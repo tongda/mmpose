@@ -112,7 +112,7 @@ class SimTokenHead(BaseHead):
         in_featuremap_size: Tuple[int, int],
         simcc_split_ratio: float = 2.0,
         hidden_dims: int = 256,
-        coord_dims: int = 512,
+        coord_gau: bool = False,
         num_enc: int = 1,
         rdrop: bool = False,
         refine: bool = False,
@@ -164,7 +164,7 @@ class SimTokenHead(BaseHead):
         self.s = s
         self.shift = shift
         self.attn = attn
-        self.coord_dims = coord_dims
+        self.coord_gau = coord_gau
         self.align_corners = align_corners
         self.input_transform = input_transform
         self.input_index = input_index
@@ -262,7 +262,25 @@ class SimTokenHead(BaseHead):
         self.coord_x_token = nn.Parameter(torch.randn((1, W, hidden_dims)))
         self.coord_y_token = nn.Parameter(torch.randn((1, H, hidden_dims)))
 
-        self.coord_x = GAU(
+        if self.coord_gau:
+            self.coord_x = GAU(
+                W,
+                hidden_dims,
+                hidden_dims,
+                s=s,
+                use_dropout=use_dropout,
+                attn=attn,
+                shift=shift)
+            self.coord_y = GAU(
+                H,
+                hidden_dims,
+                hidden_dims,
+                s=s,
+                use_dropout=use_dropout,
+                attn=attn,
+                shift=shift)
+
+        self.decoder_x = GAU(
             self.out_channels,
             hidden_dims,
             hidden_dims,
@@ -270,7 +288,7 @@ class SimTokenHead(BaseHead):
             use_dropout=use_dropout,
             attn=attn,
             shift=shift)
-        self.coord_y = GAU(
+        self.decoder_y = GAU(
             self.out_channels,
             hidden_dims,
             hidden_dims,
@@ -341,11 +359,18 @@ class SimTokenHead(BaseHead):
         pred_x = self.mlp_x(feats)
         pred_y = self.mlp_y(feats)
 
-        pred_x = self.coord_x((pred_x, self.coord_x_token, self.coord_x_token))
-        pred_y = self.coord_y((pred_y, self.coord_y_token, self.coord_y_token))
+        if self.coord_gau:
+            coord_x_token = self.coord_x(self.coord_x_token)
+            coord_y_token = self.coord_y(self.coord_y_token)
+        else:
+            coord_x_token = self.coord_x_token
+            coord_y_token = self.coord_y_token
 
-        pred_x = torch.bmm(pred_x, self.coord_x_token.permute(0, 2, 1))
-        pred_y = torch.bmm(pred_y, self.coord_y_token.permute(0, 2, 1))
+        pred_x = self.decoder_x((pred_x, coord_x_token, coord_x_token))
+        pred_y = self.decoder_y((pred_y, coord_y_token, coord_y_token))
+
+        pred_x = torch.bmm(pred_x, coord_x_token.permute(0, 2, 1))
+        pred_y = torch.bmm(pred_y, coord_y_token.permute(0, 2, 1))
 
         if self.refine and self.training:
             pred_x = (pred_x, self.refine_x(pred_x))
