@@ -324,11 +324,9 @@ class SimKCMHead(BaseHead):
         pred_x = self.mlp_x(feats)
         pred_y = self.mlp_y(feats)
 
-        if self.refine:
-            pred_x2 = self.refine_x(pred_x)
-            pred_y2 = self.refine_y(pred_y)
-            pred_x = (pred_x, pred_x2)
-            pred_y = (pred_y, pred_y2)
+        if self.refine and self.training:
+            pred_x = (pred_x, self.refine_x(pred_x))
+            pred_y = (pred_y, self.refine_y(pred_y))
         else:
             pred_x = self.refine_x(pred_x)
             pred_y = self.refine_y(pred_y)

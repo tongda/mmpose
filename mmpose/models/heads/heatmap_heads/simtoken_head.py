@@ -23,17 +23,20 @@ OptIntSeq = Optional[Sequence[int]]
 
 class SE(nn.Module):
 
-    def __init__(self, num_token, in_channels, out_channels):
+    def __init__(self, num_token, in_channels):
         super().__init__()
         # self.fc1 = nn.Linear(dims, dims)
         # self.fc_out = nn.Linear(dims, dims)
         self.fc1 = GAU(num_token, in_channels, in_channels)
-        self.fc_out = GAU(num_token, in_channels, out_channels)
+        # self.fc_out = GAU(num_token, in_channels, out_channels)
 
     def forward(self, x):
         w = self.fc1(x).sigmoid()
         x = x * w
-        x = self.fc_out(x)
+        # if m is not None:
+        #     x = self.fc_out((x, m, m))
+        # else:
+        #     x = self.fc_out(x)
         return x
 
 
@@ -112,6 +115,7 @@ class SimTokenHead(BaseHead):
         coord_dims: int = 512,
         num_enc: int = 1,
         rdrop: bool = False,
+        refine: bool = False,
         s: int = 128,
         dlinear: bool = False,
         individual: bool = False,
@@ -153,6 +157,7 @@ class SimTokenHead(BaseHead):
         self.use_hilbert_flatten = use_hilbert_flatten
         self.use_dropout = use_dropout
         self.rdrop = rdrop
+        self.refine = refine
         self.num_enc = num_enc
         self.dlinear = dlinear
         self.individual = individual
@@ -251,14 +256,28 @@ class SimTokenHead(BaseHead):
         ]
         self.encoder = nn.Sequential(*encoder)
 
-        self.mlp_x = SE(
-            num_token=self.out_channels,
-            in_channels=hidden_dims,
-            out_channels=W)
-        self.mlp_y = SE(
-            num_token=self.out_channels,
-            in_channels=hidden_dims,
-            out_channels=H)
+        self.mlp_x = SE(num_token=self.out_channels, in_channels=hidden_dims)
+        self.mlp_y = SE(num_token=self.out_channels, in_channels=hidden_dims)
+
+        self.coord_x_token = nn.Parameter(torch.randn((1, W, hidden_dims)))
+        self.coord_y_token = nn.Parameter(torch.randn((1, H, hidden_dims)))
+
+        self.coord_x = GAU(
+            self.out_channels,
+            hidden_dims,
+            hidden_dims,
+            s=s,
+            use_dropout=use_dropout,
+            attn=attn,
+            shift=shift)
+        self.coord_y = GAU(
+            self.out_channels,
+            hidden_dims,
+            hidden_dims,
+            s=s,
+            use_dropout=use_dropout,
+            attn=attn,
+            shift=shift)
 
         if self.dlinear:
             self.refine_x = DLinear(
@@ -322,8 +341,18 @@ class SimTokenHead(BaseHead):
         pred_x = self.mlp_x(feats)
         pred_y = self.mlp_y(feats)
 
-        pred_x = self.refine_x(pred_x)
-        pred_y = self.refine_y(pred_y)
+        pred_x = self.coord_x((pred_x, self.coord_x_token, self.coord_x_token))
+        pred_y = self.coord_y((pred_y, self.coord_y_token, self.coord_y_token))
+
+        pred_x = torch.bmm(pred_x, self.coord_x_token.permute(0, 2, 1))
+        pred_y = torch.bmm(pred_y, self.coord_y_token.permute(0, 2, 1))
+
+        if self.refine and self.training:
+            pred_x = (pred_x, self.refine_x(pred_x))
+            pred_y = (pred_y, self.refine_y(pred_y))
+        else:
+            pred_x = self.refine_x(pred_x)
+            pred_y = self.refine_y(pred_y)
 
         return pred_x, pred_y
 
@@ -350,15 +379,15 @@ class SimTokenHead(BaseHead):
         if self.use_hilbert_flatten:
             feats = feats[:, :, self.hilbert_mapping]
 
-        if self.rdrop and self.training:
-            feats_copy = feats.clone()
-            pred_x2, pred_y2 = self._forward(feats_copy)
+        # if self.rdrop and self.training:
+        #     feats_copy = feats.clone()
+        #     pred_x2, pred_y2 = self._forward(feats_copy)
 
         pred_x, pred_y = self._forward(feats)
 
-        if self.rdrop and self.training:
-            pred_x = (pred_x, pred_x2)
-            pred_y = (pred_y, pred_y2)
+        # if self.rdrop and self.training:
+        #     pred_x = (pred_x, pred_x2)
+        #     pred_y = (pred_y, pred_y2)
 
         return pred_x, pred_y
 
