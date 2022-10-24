@@ -17,7 +17,8 @@ class EMDLoss(nn.Module):
         self.simcc_dims = simcc_dims
         self.ids1 = [x for x in range(simcc_dims - 1)]
         self.ids2 = [x for x in range(1, simcc_dims)]
-        self.dist = torch.arange(simcc_dims)[None, None, :]  # 1, 1, Wx
+        self.dist = torch.arange(
+            simcc_dims, device=preds.device)[None, None, :]  # 1, 1, Wx
         # preds   (B, K, Wx)
         # targets (B, K, 1)
         relu_preds = F.relu(preds)
