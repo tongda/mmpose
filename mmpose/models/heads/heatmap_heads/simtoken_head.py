@@ -38,7 +38,7 @@ class SE(nn.Module):
 
 
 @MODELS.register_module()
-class SimKCMHead(BaseHead):
+class SimTokenHead(BaseHead):
     """Top-down heatmap head introduced in `SimCC`_ by Li et al (2022). The
     head is composed of a few deconvolutional layers followed by a fully-
     connected layer to generate 1d representation from low-resolution feature
@@ -112,7 +112,6 @@ class SimKCMHead(BaseHead):
         coord_dims: int = 512,
         num_enc: int = 1,
         rdrop: bool = False,
-        refine: bool = False,
         s: int = 128,
         dlinear: bool = False,
         individual: bool = False,
@@ -154,7 +153,6 @@ class SimKCMHead(BaseHead):
         self.use_hilbert_flatten = use_hilbert_flatten
         self.use_dropout = use_dropout
         self.rdrop = rdrop
-        self.refine = refine
         self.num_enc = num_enc
         self.dlinear = dlinear
         self.individual = individual
@@ -324,14 +322,8 @@ class SimKCMHead(BaseHead):
         pred_x = self.mlp_x(feats)
         pred_y = self.mlp_y(feats)
 
-        if self.refine:
-            pred_x2 = self.refine_x(pred_x)
-            pred_y2 = self.refine_y(pred_y)
-            pred_x = (pred_x, pred_x2)
-            pred_y = (pred_y, pred_y2)
-        else:
-            pred_x = self.refine_x(pred_x)
-            pred_y = self.refine_y(pred_y)
+        pred_x = self.refine_x(pred_x)
+        pred_y = self.refine_y(pred_y)
 
         return pred_x, pred_y
 
@@ -358,15 +350,15 @@ class SimKCMHead(BaseHead):
         if self.use_hilbert_flatten:
             feats = feats[:, :, self.hilbert_mapping]
 
-        # if self.rdrop and self.training:
-        #     feats_copy = feats.clone()
-        #     pred_x2, pred_y2 = self._forward(feats_copy)
+        if self.rdrop and self.training:
+            feats_copy = feats.clone()
+            pred_x2, pred_y2 = self._forward(feats_copy)
 
         pred_x, pred_y = self._forward(feats)
 
-        # if self.rdrop and self.training:
-        #     pred_x = (pred_x, pred_x2)
-        #     pred_y = (pred_y, pred_y2)
+        if self.rdrop and self.training:
+            pred_x = (pred_x, pred_x2)
+            pred_y = (pred_y, pred_y2)
 
         return pred_x, pred_y
 
@@ -442,7 +434,7 @@ class SimKCMHead(BaseHead):
 
         pred_x, pred_y = self.forward(feats)
 
-        if self.rdrop or self.refine:
+        if self.rdrop:
             pred_x, pred_x2 = pred_x
             pred_y, pred_y2 = pred_y
 
@@ -469,18 +461,16 @@ class SimKCMHead(BaseHead):
         losses = dict()
         loss = self.loss_module(pred_simcc, gt_simcc, keypoint_weights)
 
-        if self.rdrop or self.refine:
+        if self.rdrop:
             pred_simcc2 = (pred_x2, pred_y2)
             loss += self.loss_module(pred_simcc2, gt_simcc, keypoint_weights)
             loss *= 0.5
-
-            if self.rdrop:
-                kl_loss = self.loss_module(pred_simcc, pred_simcc2,
-                                           keypoint_weights)
-                kl_loss += self.loss_module(pred_simcc2, pred_simcc,
-                                            keypoint_weights)
-                kl_loss = kl_loss * 0.5
-                loss += 5 * kl_loss
+            kl_loss = self.loss_module(pred_simcc, pred_simcc2,
+                                       keypoint_weights)
+            kl_loss += self.loss_module(pred_simcc2, pred_simcc,
+                                        keypoint_weights)
+            kl_loss = kl_loss * 0.5
+            loss += 5 * kl_loss
 
         losses.update(loss_kpt=loss)
 
