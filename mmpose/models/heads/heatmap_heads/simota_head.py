@@ -457,9 +457,9 @@ class SimOTAHead(BaseHead):
         # calculate losses
         losses = dict()
         loss = self.loss_module(pred_x, keypoint_labels[:, :, 0:1],
-                                keypoint_weights)
+                                pred_x.size(-1), keypoint_weights)
         loss += self.loss_module(pred_y, keypoint_labels[:, :, 1:2],
-                                 keypoint_weights)
+                                 pred_y.size(-1), keypoint_weights)
 
         losses.update(loss_kpt=loss)
 

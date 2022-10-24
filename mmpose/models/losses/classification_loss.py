@@ -9,14 +9,15 @@ from mmpose.registry import MODELS
 @MODELS.register_module()
 class EMDLoss(nn.Module):
 
-    def __init__(self, simcc_dims, use_target_weight=False):
-        self.simcc_dims = simcc_dims
+    def __init__(self, use_target_weight=False):
+        super().__init__()
         self.use_target_weight = use_target_weight
+
+    def forward(self, preds, targets, simcc_dims, target_weight=None):
+        self.simcc_dims = simcc_dims
         self.ids1 = [x for x in range(simcc_dims - 1)]
         self.ids2 = [x for x in range(1, simcc_dims)]
         self.dist = torch.arange(simcc_dims)[None, None, :]  # 1, 1, Wx
-
-    def forward(self, preds, targets, target_weight=None):
         # preds   (B, K, Wx)
         # targets (B, K, 1)
         relu_preds = F.relu(preds)
