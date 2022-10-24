@@ -4,23 +4,52 @@ _base_ = ['../../_base_/default_runtime.py']
 train_cfg = dict(max_epochs=420, val_interval=10)
 
 # optimizer
-optim_wrapper = dict(optimizer=dict(
-    type='Adam',
-    lr=5e-4,
-))
+# optim_wrapper = dict(optimizer=dict(
+#     type='Adam',
+#     lr=5e-4,
+# ))
 
-# learning policy
+# # learning policy
+# param_scheduler = [
+#     dict(
+#         type='LinearLR', begin=0, end=500, start_factor=0.001,
+#         by_epoch=False),  # warm-up
+#     dict(
+#         type='MultiStepLR',
+#         begin=0,
+#         end=train_cfg['max_epochs'],
+#         milestones=[380, 410],
+#         gamma=0.1,
+#         by_epoch=True)
+# ]
+max_epochs = 420
+base_lr = 5e-4
+
+# optimizer
+optim_wrapper = dict(
+    _delete_=True,
+    type='OptimWrapper',
+    optimizer=dict(type='AdamW', lr=base_lr, weight_decay=0.05),
+    paramwise_cfg=dict(
+        norm_decay_mult=0, bias_decay_mult=0, bypass_duplicate=True))
+
+# learning rate
 param_scheduler = [
     dict(
-        type='LinearLR', begin=0, end=500, start_factor=0.001,
-        by_epoch=False),  # warm-up
-    dict(
-        type='MultiStepLR',
+        type='LinearLR',
+        start_factor=1.0e-5,
+        by_epoch=False,
         begin=0,
-        end=train_cfg['max_epochs'],
-        milestones=[380, 410],
-        gamma=0.1,
-        by_epoch=True)
+        end=1000),
+    dict(
+        # use cosine lr from 150 to 300 epoch
+        type='CosineAnnealingLR',
+        eta_min=base_lr * 0.05,
+        begin=max_epochs // 2,
+        end=max_epochs,
+        T_max=max_epochs // 2,
+        by_epoch=True,
+        convert_to_iter_based=True),
 ]
 
 # automatically scaling LR based on the actual training batch size
@@ -98,7 +127,7 @@ model = dict(
             use_target_weight=True,
             beta=10.,
             use_softmax=True),
-        der=codec),
+        decoder=codec),
     test_cfg=dict(flip_test=True, ))
 
 # base dataset settings

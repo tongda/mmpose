@@ -173,8 +173,8 @@ class GAU(nn.Module):
             u, q = torch.split(self.act_fn(uv), [self.e, self.s], dim=-1)
             k = self.k_fc(k)
             v = self.v_fc(v)
-            q = self.rope(q, 1)
-            k = self.rope(k, 1)
+            # q = self.rope(q, 1)
+            # k = self.rope(k, 1)
 
         # qk = torch.einsum('bnd,bmd->bnm', q, k)
         qk = torch.bmm(q, k.permute(0, 2, 1))
