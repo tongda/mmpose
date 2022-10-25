@@ -286,6 +286,7 @@ class SimTokenHead(BaseHead):
             hidden_dims,
             s=s,
             use_dropout=use_dropout,
+            self_attn=False,
             attn=attn,
             shift=shift)
         self.decoder_y = GAU(
@@ -294,6 +295,7 @@ class SimTokenHead(BaseHead):
             hidden_dims,
             s=s,
             use_dropout=use_dropout,
+            self_attn=False,
             attn=attn,
             shift=shift)
 
@@ -360,11 +362,15 @@ class SimTokenHead(BaseHead):
         pred_y = self.mlp_y(feats)
 
         if self.coord_gau:
-            coord_x_token = self.coord_x(self.coord_x_token)
+            coord_x_token = self.coord_x(self.coord_x_token)  # 1, Wx, hidden
             coord_y_token = self.coord_y(self.coord_y_token)
         else:
             coord_x_token = self.coord_x_token
             coord_y_token = self.coord_y_token
+
+        if self.training:
+            coord_x_token = coord_x_token.repeat((feats.size(0), 1, 1))
+            coord_y_token = coord_y_token.repeat((feats.size(0), 1, 1))
 
         pred_x = self.decoder_x((pred_x, coord_x_token, coord_x_token))
         pred_y = self.decoder_y((pred_y, coord_y_token, coord_y_token))

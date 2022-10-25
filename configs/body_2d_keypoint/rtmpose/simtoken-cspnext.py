@@ -10,17 +10,45 @@ optim_wrapper = dict(optimizer=dict(
 ))
 
 # learning policy
+# param_scheduler = [
+#     dict(
+#         type='LinearLR', begin=0, end=500, start_factor=0.001,
+#         by_epoch=False),  # warm-up
+#     dict(
+#         type='MultiStepLR',
+#         begin=0,
+#         end=train_cfg['max_epochs'],
+#         milestones=[380, 410],
+#         gamma=0.1,
+#         by_epoch=True)
+# ]
+max_epochs = 420
+base_lr = 5e-4
+
+# optimizer
+optim_wrapper = dict(
+    type='OptimWrapper',
+    optimizer=dict(type='AdamW', lr=base_lr, weight_decay=0.05),
+    paramwise_cfg=dict(
+        norm_decay_mult=0, bias_decay_mult=0, bypass_duplicate=True))
+
+# learning rate
 param_scheduler = [
     dict(
-        type='LinearLR', begin=0, end=500, start_factor=0.001,
-        by_epoch=False),  # warm-up
-    dict(
-        type='MultiStepLR',
+        type='LinearLR',
+        start_factor=1.0e-5,
+        by_epoch=False,
         begin=0,
-        end=train_cfg['max_epochs'],
-        milestones=[380, 410],
-        gamma=0.1,
-        by_epoch=True)
+        end=1000),
+    dict(
+        # use cosine lr from 150 to 300 epoch
+        type='CosineAnnealingLR',
+        eta_min=base_lr * 0.05,
+        begin=max_epochs // 2,
+        end=max_epochs,
+        T_max=max_epochs // 2,
+        by_epoch=True,
+        convert_to_iter_based=True),
 ]
 
 # automatically scaling LR based on the actual training batch size
@@ -43,26 +71,44 @@ model = dict(
         mean=[123.675, 116.28, 103.53],
         std=[58.395, 57.12, 57.375],
         bgr_to_rgb=True),
+    # backbone=dict(
+    #     type='MobileNetV2',
+    #     widen_factor=1.,
+    #     out_indices=(6, ),
+    #     init_cfg=dict(
+    #         type='Pretrained',
+    #         prefix='backbone.',
+    #         checkpoint='https://download.openmmlab.com/mmpose/top_down/'
+    #         'mobilenetv2/mobilenetv2_coco_256x192-d1e58e7b_20200727.pth',
+    #     )),
     backbone=dict(
-        type='MobileNetV2',
-        widen_factor=1.,
-        out_indices=(6, ),
+        _scope_='mmdet',
+        type='CSPNeXt',
+        arch='P5',
+        expand_ratio=0.5,
+        deepen_factor=0.167,
+        widen_factor=0.375,
+        out_indices=(4, ),
+        channel_attention=True,
+        act_cfg=dict(type='SiLU'),
         init_cfg=dict(
             type='Pretrained',
             prefix='backbone.',
-            checkpoint='https://download.openmmlab.com/mmpose/top_down/'
-            'mobilenetv2/mobilenetv2_coco_256x192-d1e58e7b_20200727.pth',
-        )),
+            checkpoint='https://download.openmmlab.com/mmdetection/v3.0/rtmdet'
+            '/cspnext_rsb_pretrain/cspnext-tiny_imagenet_600e.pth')),
     head=dict(
-        type='SimOTAHead',
-        in_channels=320,
+        type='SimTokenHead',
+        in_channels=384,
         out_channels=17,
         input_size=codec['input_size'],
         in_featuremap_size=(6, 8),
         simcc_split_ratio=codec['simcc_split_ratio'],
         deconv_out_channels=None,
-        use_hilbert_flatten=False,
+        use_hilbert_flatten=True,
         use_dropout=False,
+        rdrop=False,
+        refine=False,
+        coord_gau=True,
         hidden_dims=256,
         num_enc=1,
         dlinear=False,
@@ -70,7 +116,11 @@ model = dict(
         s=128,
         shift=True,
         attn='laplacian',
-        loss=dict(type='EMDLoss', use_target_weight=True),
+        loss=dict(
+            type='KLDiscretLoss',
+            use_target_weight=True,
+            beta=10.,
+            use_softmax=True),
         decoder=codec),
     test_cfg=dict(flip_test=True, ))
 

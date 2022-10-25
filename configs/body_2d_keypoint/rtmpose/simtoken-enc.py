@@ -23,11 +23,10 @@ train_cfg = dict(max_epochs=420, val_interval=10)
 #         by_epoch=True)
 # ]
 max_epochs = 420
-base_lr = 5e-4
+base_lr = 4e-3
 
 # optimizer
 optim_wrapper = dict(
-    _delete_=True,
     type='OptimWrapper',
     optimizer=dict(type='AdamW', lr=base_lr, weight_decay=0.05),
     paramwise_cfg=dict(
@@ -51,6 +50,8 @@ param_scheduler = [
         by_epoch=True,
         convert_to_iter_based=True),
 ]
+
+randomness = dict(seed=42)
 
 # automatically scaling LR based on the actual training batch size
 auto_scale_lr = dict(base_batch_size=1024)
@@ -82,28 +83,8 @@ model = dict(
             checkpoint='https://download.openmmlab.com/mmpose/top_down/'
             'mobilenetv2/mobilenetv2_coco_256x192-d1e58e7b_20200727.pth',
         )),
-    # backbone=dict(
-    #     type='LiteHRNet',
-    #     in_channels=3,
-    #     extra=dict(
-    #         stem=dict(stem_channels=32, out_channels=32, expand_ratio=1),
-    #         num_stages=3,
-    #         stages_spec=dict(
-    #             num_modules=(1, 1, 1),
-    #             num_branches=(2, 3, 4),
-    #             num_blocks=(2, 2, 2),
-    #             module_type=('LITE', 'LITE', 'LITE'),
-    #             with_fuse=(True, True, True),
-    #             reduce_ratios=(8, 8, 8),
-    #             num_channels=(
-    #                 (44, 88),
-    #                 (44, 88, 176),
-    #                 (44, 88, 176, 352),
-    #             )),
-    #         with_head=True,
-    #     )),
     head=dict(
-        type='SimKCMHead',
+        type='SimTokenHead',
         in_channels=320,
         out_channels=17,
         input_size=codec['input_size'],
@@ -113,8 +94,8 @@ model = dict(
         use_hilbert_flatten=True,
         use_dropout=False,
         rdrop=False,
-        refine=True,
-        coord_gau=False,
+        refine=False,
+        coord_gau=True,
         hidden_dims=256,
         num_enc=1,
         dlinear=False,
