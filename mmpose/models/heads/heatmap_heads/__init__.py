@@ -5,6 +5,7 @@ from .heatmap_head import HeatmapHead
 from .kcm_head import KCMHead
 from .kpt_coord_head import KptCoordHead
 from .mspn_head import MSPNHead
+from .rtm_head import RTMHead
 from .selfmatch_head import SelfMatchHead
 from .simcc_gap_fc_head import SimCC_GAP_FC
 from .simcc_gau_head import SimCC_GAU_Head
@@ -24,5 +25,5 @@ __all__ = [
     'SimCC_RLE_Head', 'SimCC_GAP_FC', 'SimCC_IPR_Head',
     'SimCC_SamplingArgmax_Head', 'SimCC_GAU_Head', 'GAU_Head',
     'SimCC_Proposal_Head', 'SelfMatchHead', 'KptCoordHead', 'KCMHead',
-    'SimKCMHead', 'SimKCM_Sigma_Head', 'SimTokenHead', 'SimOTAHead'
+    'SimKCMHead', 'SimKCM_Sigma_Head', 'SimTokenHead', 'SimOTAHead', 'RTMHead'
 ]

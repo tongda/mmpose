@@ -37,7 +37,7 @@ class SE(nn.Module):
 
 
 @MODELS.register_module()
-class RTMPoseHead(BaseHead):
+class RTMHead(BaseHead):
 
     _version = 2
 
