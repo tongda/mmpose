@@ -539,7 +539,7 @@ class SimOTAHead(BaseHead):
         )
 
         acc_pose = torch.tensor(avg_acc, device=gt_x.device)
-        losses.update(acc_pose=acc_pose)
+        losses.update(simcc_pose=acc_pose)
 
         idx_x = [[x, x + 1] for x in range(pred_x.size(-1) - 1)]
         px = pred_x[:, :, idx_x].sum(dim=-1)  # B, K, Wx-1
