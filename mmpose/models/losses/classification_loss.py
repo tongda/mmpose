@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from mmpose.registry import MODELS
+from mmpose.utils import sinkhorn
 
 
 @MODELS.register_module()
@@ -14,36 +15,33 @@ class EMDLoss(nn.Module):
         self.use_target_weight = use_target_weight
 
     def forward(self, preds, targets, simcc_dims, target_weight=None):
-        self.simcc_dims = simcc_dims
-        self.ids1 = [x for x in range(simcc_dims - 1)]
-        self.ids2 = [x for x in range(1, simcc_dims)]
-        self.dist = torch.arange(
-            simcc_dims, device=preds.device)[None, None, :]  # 1, 1, Wx
         # preds   (B, K, Wx)
         # targets (B, K, 1)
         relu_preds = F.relu(preds)
         preds = relu_preds / relu_preds.sum(dim=-1, keepdims=True)
 
         d1 = targets.int()
-        d2 = (d1 + 1).clamp(0, self.simcc_dims - 1)
+        d2 = (d1 + 1).clamp(0, simcc_dims - 1)
 
-        t1 = d2 - targets
-        t2 = targets - d1
+        t1 = d2 - targets  # B, K, 1
+        t2 = targets - d1  # B, K, 1
 
-        w1 = (self.dist - d1).abs()  # B, K, 1
-        w2 = (self.dist - d2).abs()  # B, K, 1
+        w = torch.cat([t1, t2], dim=2)  # B, K, 2
 
-        C1 = preds - t1  # B, K, Wx
-        C2 = preds - t2
+        x = torch.arange(
+            simcc_dims, dtype=torch.float,
+            device=preds.device).unsqueeze(-1)  # Wx, 1
+        # y = torch.arange(2).unsqueeze(-1)  # 2, 1
+        y = torch.cat([d1, d2], dim=2).unsqueeze(-1)  # B, K, 2
 
-        cost1 = C1 * w1  # B, K, Wx
-        cost2 = C2 * w2  # B, K, Wx
-        c1 = cost1[:, :, self.ids1]
-        c2 = cost2[:, :, self.ids2]  # B, K, Wx-1
-        c = c1 + c2 + c1 * torch.log(c1) + c2 * torch.log(c2)
-
-        plan = c.argmin(dim=-1, keepdims=True)  # B, K, 1
-        loss = c[plan] / preds.size(0)  # B, K, 1
+        loss = 0.
+        for b in range(preds.size(0)):
+            for k in range(preds.size(1)):
+                w_x = preds[b, k]  # Wx,
+                w_y = w[b, k]  # 2,
+                t_loss, _, _ = sinkhorn(x, y[b, k], p=1, w_x=w_x, w_y=w_y)
+                loss += t_loss
+                print(t_loss)
 
         if target_weight is not None:
             for i in range(loss.ndim - target_weight.ndim):
