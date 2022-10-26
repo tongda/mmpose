@@ -7,7 +7,8 @@ import torch
 from mmcv.cnn import build_conv_layer
 from torch import Tensor, nn
 
-from mmpose.evaluation.functional import keypoint_pck_accuracy
+from mmpose.evaluation.functional import (keypoint_pck_accuracy,
+                                          simcc_pck_accuracy)
 from mmpose.models.utils.gilbert2d import gilbert2d
 # from mmpose.models.utils.dlinear import DLinear
 from mmpose.models.utils.tta import flip_vectors
@@ -24,17 +25,20 @@ OptIntSeq = Optional[Sequence[int]]
 
 class SE(nn.Module):
 
-    def __init__(self, num_token, in_channels, out_channels):
+    def __init__(self, num_token, in_channels):
         super().__init__()
         # self.fc1 = nn.Linear(dims, dims)
         # self.fc_out = nn.Linear(dims, dims)
         self.fc1 = GAU(num_token, in_channels, in_channels)
-        self.fc_out = GAU(num_token, in_channels, out_channels)
+        # self.fc_out = GAU(num_token, in_channels, out_channels)
 
     def forward(self, x):
         w = self.fc1(x).sigmoid()
         x = x * w
-        x = self.fc_out(x)
+        # if m is not None:
+        #     x = self.fc_out((x, m, m))
+        # else:
+        #     x = self.fc_out(x)
         return x
 
 
@@ -110,6 +114,7 @@ class SimOTAHead(BaseHead):
         in_featuremap_size: Tuple[int, int],
         simcc_split_ratio: float = 2.0,
         hidden_dims: int = 256,
+        coord_gau: bool = False,
         num_enc: int = 1,
         rdrop: bool = False,
         refine: bool = False,
@@ -161,6 +166,7 @@ class SimOTAHead(BaseHead):
         self.s = s
         self.shift = shift
         self.attn = attn
+        self.coord_gau = coord_gau
         self.align_corners = align_corners
         self.input_transform = input_transform
         self.input_index = input_index
@@ -252,14 +258,48 @@ class SimOTAHead(BaseHead):
         ]
         self.encoder = nn.Sequential(*encoder)
 
-        self.mlp_x = SE(
-            num_token=self.out_channels,
-            in_channels=hidden_dims,
-            out_channels=W)
-        self.mlp_y = SE(
-            num_token=self.out_channels,
-            in_channels=hidden_dims,
-            out_channels=H)
+        self.mlp_x = SE(num_token=self.out_channels, in_channels=hidden_dims)
+        self.mlp_y = SE(num_token=self.out_channels, in_channels=hidden_dims)
+
+        self.coord_x_token = nn.Parameter(torch.randn((1, W, hidden_dims)))
+        self.coord_y_token = nn.Parameter(torch.randn((1, H, hidden_dims)))
+
+        if self.coord_gau:
+            self.coord_x = GAU(
+                W,
+                hidden_dims,
+                hidden_dims,
+                s=s,
+                use_dropout=use_dropout,
+                attn=attn,
+                shift=shift)
+            self.coord_y = GAU(
+                H,
+                hidden_dims,
+                hidden_dims,
+                s=s,
+                use_dropout=use_dropout,
+                attn=attn,
+                shift=shift)
+
+        self.decoder_x = GAU(
+            self.out_channels,
+            hidden_dims,
+            hidden_dims,
+            s=s,
+            use_dropout=use_dropout,
+            self_attn=False,
+            attn=attn,
+            shift=shift)
+        self.decoder_y = GAU(
+            self.out_channels,
+            hidden_dims,
+            hidden_dims,
+            s=s,
+            use_dropout=use_dropout,
+            self_attn=False,
+            attn=attn,
+            shift=shift)
 
         if self.dlinear:
             self.refine_x = DLinear(
@@ -322,6 +362,23 @@ class SimOTAHead(BaseHead):
 
         pred_x = self.mlp_x(feats)
         pred_y = self.mlp_y(feats)
+
+        if self.coord_gau:
+            coord_x_token = self.coord_x(self.coord_x_token)  # 1, Wx, hidden
+            coord_y_token = self.coord_y(self.coord_y_token)
+        else:
+            coord_x_token = self.coord_x_token
+            coord_y_token = self.coord_y_token
+
+        if self.training:
+            coord_x_token = coord_x_token.repeat((feats.size(0), 1, 1))
+            coord_y_token = coord_y_token.repeat((feats.size(0), 1, 1))
+
+        pred_x = self.decoder_x((pred_x, coord_x_token, coord_x_token))
+        pred_y = self.decoder_y((pred_y, coord_y_token, coord_y_token))
+
+        pred_x = torch.bmm(pred_x, coord_x_token.permute(0, 2, 1))
+        pred_y = torch.bmm(pred_y, coord_y_token.permute(0, 2, 1))
 
         if self.refine and self.training:
             pred_x = (pred_x, self.refine_x(pred_x))
@@ -439,13 +496,17 @@ class SimOTAHead(BaseHead):
 
         pred_x, pred_y = self.forward(feats)
 
-        if self.rdrop or self.refine:
-            pred_x, pred_x2 = pred_x
-            pred_y, pred_y2 = pred_y
+        keypoint_labels = self.input_size * torch.cat(
+            [d.gt_instance_labels.keypoint_labels for d in batch_data_samples])
 
-        keypoint_labels = torch.cat(
-            [d.gt_instance_labels.keypoint_labels
-             for d in batch_data_samples]) * self.input_size
+        gt_x = torch.cat([
+            d.gt_instance_labels.keypoint_x_labels for d in batch_data_samples
+        ],
+                         dim=0)
+        gt_y = torch.cat([
+            d.gt_instance_labels.keypoint_y_labels for d in batch_data_samples
+        ],
+                         dim=0)
         keypoint_weights = torch.cat(
             [
                 d.gt_instance_labels.keypoint_weights
@@ -454,26 +515,52 @@ class SimOTAHead(BaseHead):
             dim=0,
         )
 
+        pred_simcc = (pred_x, pred_y)
+        gt_simcc = (gt_x, gt_y)
+        target_x = keypoint_labels[:, :, 0:1]
+        target_y = keypoint_labels[:, :, 1:2]
+
         # calculate losses
         losses = dict()
-        loss = self.loss_module(pred_x, keypoint_labels[:, :, 0:1],
-                                pred_x.size(-1), keypoint_weights)
-        loss += self.loss_module(pred_y, keypoint_labels[:, :, 1:2],
-                                 pred_y.size(-1), keypoint_weights)
+        loss = self.loss_module(pred_x, target_x, pred_x.size(-1),
+                                keypoint_weights)
+        loss += self.loss_module(pred_y, target_y, pred_y.size(-1),
+                                 keypoint_weights)
+        loss *= 0.5
 
         losses.update(loss_kpt=loss)
 
-        px = pred_x.argmax(dim=-1, keepdims=True)  # B, K, 1
-        py = pred_y.argmax(dim=-1, keepdims=True)  # B, K, 1
-        pred_outputs = torch.cat([px, py], dim=-1)  # B, K, 2
+        # calculate accuracy
+        _, avg_acc, _ = simcc_pck_accuracy(
+            output=to_numpy(pred_simcc),
+            target=to_numpy(gt_simcc),
+            simcc_split_ratio=self.simcc_split_ratio,
+            mask=to_numpy(keypoint_weights) > 0,
+        )
+
+        acc_pose = torch.tensor(avg_acc, device=gt_x.device)
+        losses.update(acc_pose=acc_pose)
+
+        idx_x = [[x, x + 1] for x in range(pred_x.size(-1) - 1)]
+        px = pred_x[:, :, idx_x].sum(dim=-1)  # B, K, Wx-1
+        x1 = px.argmax(dim=-1, keepdim=True)
+        x2 = x1 + 1
+        fin_x = x1 * pred_x[x1] + x2 * pred_x[x2]
+
+        idx_y = [[x, x + 1] for x in range(pred_y.size(-1) - 1)]
+        py = pred_y[:, :, idx_y].sum(dim=-1)  # B, K, Wx-1
+        y1 = py.argmax(dim=-1, keepdim=True)
+        y2 = y1 + 1
+        fin_y = y1 * pred_y[y1] + y2 * pred_y[y2]  # B, K,
+        pred_coords = torch.stack([fin_x, fin_y], dim=-1)  # B, K, 2
 
         # calculate accuracy
         _, avg_acc, _ = keypoint_pck_accuracy(
-            pred=to_numpy(pred_outputs),
+            pred=to_numpy(pred_coords),
             gt=to_numpy(keypoint_labels),
             mask=to_numpy(keypoint_weights) > 0,
             thr=0.05,
-            norm_factor=np.ones((pred_outputs.size(0), 2), dtype=np.float32))
+            norm_factor=np.ones((pred_coords.size(0), 2), dtype=np.float32))
 
         acc_pose = torch.tensor(avg_acc, device=keypoint_labels.device)
         losses.update(acc_pose=acc_pose)

@@ -167,9 +167,9 @@ def sinkhorn(x: torch.Tensor,
     approx_corr_2 = P_ij.argmax(dim=0).squeeze(-1)
 
     if u.shape[0] > v.shape[0]:
-        distance = (P_ij * M_ij).sum(dim=1).sum()
+        distance = (P_ij * M_ij).sum(dim=1)
     else:
-        distance = (P_ij * M_ij).sum(dim=0).sum()
+        distance = (P_ij * M_ij).sum(dim=0)
     return distance, approx_corr_1, approx_corr_2
 
 
@@ -206,12 +206,8 @@ class EMDLoss(nn.Module):
                 w_x = preds[b, k]  # Wx,
                 w_y = w[b, k]  # 2,
                 t_loss, _, _ = sinkhorn(x, y[b, k], p=1, w_x=w_x, w_y=w_y)
-                loss += t_loss
-                print(t_loss)
-
-        if target_weight is not None:
-            for i in range(loss.ndim - target_weight.ndim):
-                target_weight = target_weight.unsqueeze(-1)
-            loss *= target_weight
+                if target_weight is not None:
+                    t_loss *= target_weight[b, k]
+                loss += t_loss  # Wx, 1
 
         return loss.sum()
