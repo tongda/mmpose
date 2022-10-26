@@ -4,31 +4,61 @@ _base_ = ['../../_base_/default_runtime.py']
 train_cfg = dict(max_epochs=420, val_interval=10)
 
 # optimizer
-optim_wrapper = dict(optimizer=dict(
-    type='Adam',
-    lr=5e-4,
-))
+# optim_wrapper = dict(optimizer=dict(
+#     type='Adam',
+#     lr=5e-4,
+# ))
 
-# learning policy
+# # learning policy
+# param_scheduler = [
+#     dict(
+#         type='LinearLR', begin=0, end=500, start_factor=0.001,
+#         by_epoch=False),  # warm-up
+#     dict(
+#         type='MultiStepLR',
+#         begin=0,
+#         end=train_cfg['max_epochs'],
+#         milestones=[380, 410],
+#         gamma=0.1,
+#         by_epoch=True)
+# ]
+max_epochs = 420
+base_lr = 4e-3
+
+# optimizer
+optim_wrapper = dict(
+    type='OptimWrapper',
+    optimizer=dict(type='AdamW', lr=base_lr, weight_decay=0.05),
+    paramwise_cfg=dict(
+        norm_decay_mult=0, bias_decay_mult=0, bypass_duplicate=True))
+
+# learning rate
 param_scheduler = [
     dict(
-        type='LinearLR', begin=0, end=500, start_factor=0.001,
-        by_epoch=False),  # warm-up
-    dict(
-        type='MultiStepLR',
+        type='LinearLR',
+        start_factor=1.0e-5,
+        by_epoch=False,
         begin=0,
-        end=train_cfg['max_epochs'],
-        milestones=[380, 410],
-        gamma=0.1,
-        by_epoch=True)
+        end=1000),
+    dict(
+        # use cosine lr from 150 to 300 epoch
+        type='CosineAnnealingLR',
+        eta_min=base_lr * 0.05,
+        begin=max_epochs // 2,
+        end=max_epochs,
+        T_max=max_epochs // 2,
+        by_epoch=True,
+        convert_to_iter_based=True),
 ]
+
+randomness = dict(seed=42)
 
 # automatically scaling LR based on the actual training batch size
 auto_scale_lr = dict(base_batch_size=1024)
 
 # codec settings
 codec = dict(
-    type='SimCCLabel',
+    type='SimCCRLELabel',
     input_size=(192, 256),
     sigma=(4.9, 5.66),
     simcc_split_ratio=2.0,
@@ -61,8 +91,11 @@ model = dict(
         in_featuremap_size=(6, 8),
         simcc_split_ratio=codec['simcc_split_ratio'],
         deconv_out_channels=None,
-        use_hilbert_flatten=False,
+        use_hilbert_flatten=True,
         use_dropout=False,
+        rdrop=False,
+        refine=False,
+        coord_gau=True,
         hidden_dims=256,
         num_enc=1,
         dlinear=False,
@@ -139,7 +172,7 @@ train_dataloader = dict(
     ))
 val_dataloader = dict(
     batch_size=64,
-    num_workers=4,
+    num_workers=10,
     persistent_workers=True,
     drop_last=False,
     sampler=dict(type='DefaultSampler', shuffle=False, round_up=False),
