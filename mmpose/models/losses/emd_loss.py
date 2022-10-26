@@ -1,7 +1,7 @@
 # Copyright (c) OpenMMLab. All rights reserved.
-from typing import Union
+# from typing import Union
 
-import pykeops.torch as keops
+# import pykeops.torch as keops
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -9,168 +9,99 @@ import torch.nn.functional as F
 from mmpose.registry import MODELS
 
 
-def sinkhorn(x: torch.Tensor,
-             y: torch.Tensor,
-             p: float = 2,
-             w_x: Union[torch.Tensor, None] = None,
-             w_y: Union[torch.Tensor, None] = None,
-             eps: float = 1e-3,
-             max_iters: int = 100,
-             stop_thresh: float = 1e-5,
-             verbose=False):
-    """Compute the Entropy-Regularized p-Wasserstein Distance between two
-    d-dimensional point clouds using the Sinkhorn scaling algorithm. This code
-    will use the GPU if you pass in GPU tensors. Note that this algorithm can
-    be backpropped through (though this may be slow if using many iterations).
-
-    :param x: A [n, d] tensor representing a d-dimensional point cloud
-    with n points (one per row)
-    :param y: A [m, d] tensor representing a d-dimensional point cloud
-    with m points (one per row)
-    :param p: Which norm to use. Must be an integer greater than 0.
-    :param w_x: A [n,] shaped tensor of optional weights for the points x
-    (None for uniform weights). Note that these must sum to the same value
-     as w_y. Default is None.
-    :param w_y: A [m,] shaped tensor of optional weights for the points y
-     (None for uniform weights). Note that these must sum to the same value
-      as w_y. Default is None.
-    :param eps: The reciprocal of the sinkhorn entropy regularization
-     parameter.
-    :param max_iters: The maximum number of Sinkhorn iterations to perform.
-    :param stop_thresh: Stop if the maximum change in the parameters is
-     below this amount
-    :param verbose: Print iterations
-    :return: a triple (d, corrs_x_to_y, corr_y_to_x) where:
-    * d is the approximate p-wasserstein distance between point clouds x
-     and y
-    * corrs_x_to_y is a [n,]-shaped tensor where corrs_x_to_y[i] is the
-     index of the approximate correspondence in point cloud y of point
-      x[i] (i.e. x[i] and y[corrs_x_to_y[i]] are a corresponding pair)
-    * corrs_y_to_x is a [m,]-shaped tensor where corrs_y_to_x[i] is the
-     index of the approximate correspondence in point cloud x of point
-      y[j] (i.e. y[j] and x[corrs_y_to_x[j]] are a corresponding pair)
+# Adapted from https://github.com/gpeyre/SinkhornAutoDiff
+class SinkhornDistance(nn.Module):
+    r"""
+    Given two empirical measures each with :math:`P_1` locations
+    :math:`x\in\mathbb{R}^{D_1}` and :math:`P_2`
+    locations :math:`y\in\mathbb{R}^{D_2}`,
+    outputs an approximation of the regularized cost for point clouds.
+    Args:
+        eps (float): regularization coefficient
+        max_iter (int): maximum number of Sinkhorn iterations
+        reduction (string, optional): Specifies the reduction to apply to
+         the output:
+            'none' | 'mean' | 'sum'. 'none': no reduction will be applied,
+            'mean': the sum of the output will be divided by the number of
+            elements in the output, 'sum': the output will be summed.
+             Default: 'none'
+    Shape:
+        - Input: :math:`(N, P_1, D_1)`, :math:`(N, P_2, D_2)`
+        - Output: :math:`(N)` or :math:`()`, depending on `reduction`
     """
 
-    if not isinstance(p, int):
-        raise TypeError(f'p must be an integer greater than 0, got {p}')
-    if p <= 0:
-        raise ValueError(f'p must be an integer greater than 0, got {p}')
+    def __init__(self, eps, max_iter, reduction='none'):
+        super(SinkhornDistance, self).__init__()
+        self.eps = eps
+        self.max_iter = max_iter
+        self.reduction = reduction
 
-    if eps <= 0:
-        raise ValueError('Entropy regularization term eps must be > 0')
+    def forward(self, x, y, wx, wy):
+        # The Sinkhorn algorithm takes as input three variables :
+        C = self._cost_matrix(x, y)  # Wasserstein cost function
 
-    if not isinstance(p, int):
-        raise TypeError(f'max_iters must be an integer > 0, got {max_iters}')
-    if max_iters <= 0:
-        raise ValueError(f'max_iters must be an integer > 0, got {max_iters}')
+        # both marginals are fixed with equal weights
+        # mu = torch.empty(batch_size, x_points, dtype=torch.float,
+        #                  requires_grad=False).fill_(1.0 / x_points).squeeze()
+        # nu = torch.empty(batch_size, y_points, dtype=torch.float,
+        #                  requires_grad=False).fill_(1.0 / y_points).squeeze()
+        mu = wx.squeeze()
+        nu = wy.squeeze()
 
-    if not isinstance(stop_thresh, float):
-        raise TypeError(f'stop_thresh must be a float, got {stop_thresh}')
+        u = torch.zeros_like(mu)
+        v = torch.zeros_like(nu)
+        # To check if algorithm terminates because of threshold
+        # or max iterations reached
+        actual_nits = 0
+        # Stopping criterion
+        thresh = 1e-1
 
-    if len(x.shape) != 2:
-        raise ValueError(f'x must be an [n, d] tensor but got shape {x.shape}')
-    if len(y.shape) != 2:
-        raise ValueError(f'x must be an [m, d] tensor but got shape {y.shape}')
-    if x.shape[1] != y.shape[1]:
-        raise ValueError(
-            f'x and y must match in the last dimension (i.e. x.shape=[n, d], '
-            f'y.shape[m, d]) but got x.shape = {x.shape}, y.shape={y.shape}')
+        # Sinkhorn iterations
+        for i in range(self.max_iter):
+            u1 = u  # useful to check the update
+            t1 = torch.log(mu + 1e-8)
+            t2 = torch.logsumexp(self.M(C, u, v), dim=-1)
+            u = self.eps * (t1 - t2) + u
+            t1 = torch.log(nu + 1e-8)
+            t2 = torch.logsumexp(self.M(C, u, v).transpose(-2, -1), dim=-1)
+            v = self.eps * (t1 - t2) + v
+            err = (u - u1).abs().sum(-1).mean()
 
-    if w_x is not None:
-        if w_y is None:
-            raise ValueError('If w_x is not None, w_y must also be not None')
-        if len(w_x.shape) > 1:
-            w_x = w_x.squeeze()
-        if len(w_x.shape) != 1:
-            raise ValueError(
-                f'w_x must have shape [n,] or [n, 1] '
-                f'where x.shape = [n, d], but got w_x.shape = {w_x.shape}')
-        if w_x.shape[0] != x.shape[0]:
-            raise ValueError(
-                f'w_x must match the shape of x in dimension 0 but got '
-                f'x.shape = {x.shape} and w_x.shape = {w_x.shape}')
-    if w_y is not None:
-        if w_x is None:
-            raise ValueError('If w_y is not None, w_x must also be not None')
-        if len(w_y.shape) > 1:
-            w_y = w_y.squeeze()
-        if len(w_y.shape) != 1:
-            raise ValueError(
-                f'w_y must have shape [n,] or [n, 1] '
-                f'where x.shape = [n, d], but got w_y.shape = {w_y.shape}')
-        if w_x.shape[0] != x.shape[0]:
-            raise ValueError(
-                f'w_y must match the shape of y in dimension 0 but got '
-                f'y.shape = {y.shape} and w_y.shape = {w_y.shape}')
+            actual_nits += 1
+            if err.item() < thresh:
+                break
 
-    # Distance matrix [n, m]
-    x_i = keops.Vi(x)  # [n, 1, d]
-    y_j = keops.Vj(y)  # [i, m, d]
-    if p == 1:
-        M_ij = ((x_i - y_j)**p).abs().sum(dim=2)  # [n, m]
-    else:
-        M_ij = ((x_i - y_j)**p).sum(dim=2)**(1.0 / p)  # [n, m]
+        U, V = u, v
+        # Transport plan pi = diag(a)*K*diag(b)
+        pi = torch.exp(self.M(C, U, V))
+        # Sinkhorn distance
+        cost = torch.sum(pi * C, dim=(-2, -1))
 
-    # Weights [n,] and [m,]
-    if w_x is None and w_y is None:
-        w_x = torch.ones(x.shape[0]).to(x) / x.shape[0]
-        w_y = torch.ones(y.shape[0]).to(x) / y.shape[0]
-        w_y *= (w_x.shape[0] / w_y.shape[0])
+        if self.reduction == 'mean':
+            cost = cost.mean()
+        elif self.reduction == 'sum':
+            cost = cost.sum()
 
-    sum_w_x = w_x.sum().item()
-    sum_w_y = w_y.sum().item()
-    if abs(sum_w_x - sum_w_y) > 1e-5:
-        raise ValueError(
-            f'Weights w_x and w_y do not sum to the same value, '
-            f'got w_x.sum() = {sum_w_x} and w_y.sum() = {sum_w_y} '
-            f'(absolute difference = {abs(sum_w_x - sum_w_y)}')
+        return cost, pi, C
 
-    log_a = torch.log(w_x)  # [n]
-    log_b = torch.log(w_y)  # [m]
+    def M(self, C, u, v):
+        """Modified cost for logarithmic updates."""
+        'Mij=(−cij+ui+vj)/ϵ'
+        return (-C + u.unsqueeze(-1) + v.unsqueeze(-2)) / self.eps
 
-    # Initialize the iteration with the change of variable
-    u = torch.zeros_like(w_x)
-    v = eps * torch.log(w_y)
+    @staticmethod
+    def _cost_matrix(x, y, p=2):
+        """Returns the matrix of |xi−yj|p."""
+        x_col = x.unsqueeze(-2)
+        y_lin = y.unsqueeze(-3)
+        C = torch.sum((torch.abs(x_col - y_lin))**p, -1)
+        return C
 
-    u_i = keops.Vi(u.unsqueeze(-1))
-    v_j = keops.Vj(v.unsqueeze(-1))
-
-    if verbose:
-        # pbar = tqdm.trange(max_iters)
-        pass
-    else:
-        pbar = range(max_iters)
-
-    for _ in pbar:
-        u_prev = u
-        v_prev = v
-
-        summand_u = (-M_ij + v_j) / eps
-        u = eps * (log_a - summand_u.logsumexp(dim=1).squeeze())
-        u_i = keops.Vi(u.unsqueeze(-1))
-
-        summand_v = (-M_ij + u_i) / eps
-        v = eps * (log_b - summand_v.logsumexp(dim=0).squeeze())
-        v_j = keops.Vj(v.unsqueeze(-1))
-
-        max_err_u = torch.max(torch.abs(u_prev - u))
-        max_err_v = torch.max(torch.abs(v_prev - v))
-        if verbose:
-            pbar.set_postfix(
-                {'Current Max Error': max(max_err_u, max_err_v).item()})
-        if max_err_u < stop_thresh and max_err_v < stop_thresh:
-            break
-
-    P_ij = ((-M_ij + u_i + v_j) / eps).exp()
-
-    approx_corr_1 = P_ij.argmax(dim=1).squeeze(-1)
-    approx_corr_2 = P_ij.argmax(dim=0).squeeze(-1)
-
-    if u.shape[0] > v.shape[0]:
-        distance = (P_ij * M_ij).sum(dim=1)
-    else:
-        distance = (P_ij * M_ij).sum(dim=0)
-    return distance, approx_corr_1, approx_corr_2
+    @staticmethod
+    def ave(u, u1, tau):
+        """Barycenter subroutine, used by kinetic acceleration through
+        extrapolation."""
+        return tau * u + (1 - tau) * u1
 
 
 @MODELS.register_module()
@@ -179,6 +110,7 @@ class EMDLoss(nn.Module):
     def __init__(self, use_target_weight=False):
         super().__init__()
         self.use_target_weight = use_target_weight
+        self.sinkhorn = SinkhornDistance(eps=0.1, max_iter=100)
 
     def forward(self, preds, targets, simcc_dims, target_weight=None):
         # preds   (B, K, Wx)
@@ -198,16 +130,23 @@ class EMDLoss(nn.Module):
             simcc_dims, dtype=torch.float,
             device=preds.device).unsqueeze(-1)  # Wx, 1
         # y = torch.arange(2).unsqueeze(-1)  # 2, 1
-        y = torch.cat([d1, d2], dim=2).unsqueeze(-1)  # B, K, 2
+        y = torch.cat([d1, d2], dim=2)  # B, K, 2
 
-        loss = 0.
-        for b in range(preds.size(0)):
-            for k in range(preds.size(1)):
-                w_x = preds[b, k]  # Wx,
-                w_y = w[b, k]  # 2,
-                t_loss, _, _ = sinkhorn(x, y[b, k], p=1, w_x=w_x, w_y=w_y)
-                if target_weight is not None:
-                    t_loss *= target_weight[b, k]
-                loss += t_loss  # Wx, 1
+        # loss = 0.
+        # for b in range(preds.size(0)):
+        #     for k in range(preds.size(1)):
+        #         w_x = preds[b, k]  # Wx,
+        #         w_y = w[b, k]  # 2,
+        #         t_loss, _, _ = sinkhorn(x, y[b, k], p=1, w_x=w_x, w_y=w_y)
+        #         if target_weight is not None:
+        #             t_loss *= target_weight[b, k]
+        #         loss += t_loss  # Wx, 1
+        B, K, _ = preds.shape
+        p = x[None, :].repeat((B * K, 1, 1))  # B*K, Wx, 1
+        q = y.reshape(-1, y.size(-1), 1)  # B*K, 2, 1
+        wx = preds.reshape(-1, preds.size(-1), 1)  # B*K, Wx, 1
+        wy = w.reshape(-1, w.size(-1), 1)  # B*K, 2, 1
+        # print('p', p.shape, 'q', q.shape, 'wx', wx.shape,'wy',wy.shape)
+        loss, _, _ = self.sinkhorn(p, q, wx, wy)
 
-        return loss.sum()
+        return loss.sum() / B / K

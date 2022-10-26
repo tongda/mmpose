@@ -95,7 +95,7 @@ model = dict(
         use_dropout=False,
         rdrop=False,
         refine=False,
-        coord_gau=True,
+        coord_gau=False,
         hidden_dims=256,
         num_enc=1,
         dlinear=False,
@@ -146,7 +146,9 @@ train_pipeline = [
     #     ],
     #     ),
     dict(
-        type='GenerateTarget', target_type='keypoint_xy_label', encoder=codec),
+        type='GenerateTarget',
+        target_type='keypoint_xy_label+keypoint_label',
+        encoder=codec),
     dict(type='PackPoseInputs')
 ]
 val_pipeline = [
