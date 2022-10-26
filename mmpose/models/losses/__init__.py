@@ -1,5 +1,6 @@
 # Copyright (c) OpenMMLab. All rights reserved.
-from .classification_loss import BCELoss, EMDLoss, JSDiscretLoss, KLDiscretLoss
+from .classification_loss import BCELoss, JSDiscretLoss, KLDiscretLoss
+from .emd_loss import EMDLoss
 from .heatmap_loss import AdaptiveWingLoss
 from .iou_loss import (BoundedIoULoss, CIoULoss, DIoULoss, GIoULoss, IoULoss,
                        bounded_iou_loss, iou_loss)

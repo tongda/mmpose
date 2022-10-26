@@ -3,9 +3,10 @@ from typing import Union
 
 import pykeops.torch as keops
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
-# import torch.nn as nn
-# import torch.nn.functional as F
+from mmpose.registry import MODELS
 
 
 def sinkhorn(x: torch.Tensor,
@@ -172,9 +173,45 @@ def sinkhorn(x: torch.Tensor,
     return distance, approx_corr_1, approx_corr_2
 
 
-# a = torch.rand((2, 3, 6))
-# b = torch.rand((2, 3, 1)) * 5
+@MODELS.register_module()
+class EMDLoss(nn.Module):
 
-# loss_func = EMDLoss()
-# loss = loss_func(a, b, 6)
-# print(loss)
+    def __init__(self, use_target_weight=False):
+        super().__init__()
+        self.use_target_weight = use_target_weight
+
+    def forward(self, preds, targets, simcc_dims, target_weight=None):
+        # preds   (B, K, Wx)
+        # targets (B, K, 1)
+        relu_preds = F.relu(preds)
+        preds = relu_preds / relu_preds.sum(dim=-1, keepdims=True)
+
+        d1 = targets.int()
+        d2 = (d1 + 1).clamp(0, simcc_dims - 1)
+
+        t1 = d2 - targets  # B, K, 1
+        t2 = targets - d1  # B, K, 1
+
+        w = torch.cat([t1, t2], dim=2)  # B, K, 2
+
+        x = torch.arange(
+            simcc_dims, dtype=torch.float,
+            device=preds.device).unsqueeze(-1)  # Wx, 1
+        # y = torch.arange(2).unsqueeze(-1)  # 2, 1
+        y = torch.cat([d1, d2], dim=2).unsqueeze(-1)  # B, K, 2
+
+        loss = 0.
+        for b in range(preds.size(0)):
+            for k in range(preds.size(1)):
+                w_x = preds[b, k]  # Wx,
+                w_y = w[b, k]  # 2,
+                t_loss, _, _ = sinkhorn(x, y[b, k], p=1, w_x=w_x, w_y=w_y)
+                loss += t_loss
+                print(t_loss)
+
+        if target_weight is not None:
+            for i in range(loss.ndim - target_weight.ndim):
+                target_weight = target_weight.unsqueeze(-1)
+            loss *= target_weight
+
+        return loss.sum()
