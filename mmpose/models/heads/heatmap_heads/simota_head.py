@@ -496,8 +496,11 @@ class SimOTAHead(BaseHead):
 
         pred_x, pred_y = self.forward(feats)
 
-        keypoint_labels = self.input_size * torch.cat(
-            [d.gt_instance_labels.keypoint_labels for d in batch_data_samples])
+        keypoint_labels = torch.tensor(
+            self.input_size, device=pred_x.device) * torch.cat([
+                d.gt_instance_labels.keypoint_labels
+                for d in batch_data_samples
+            ])
 
         gt_x = torch.cat([
             d.gt_instance_labels.keypoint_x_labels for d in batch_data_samples
