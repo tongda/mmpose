@@ -90,7 +90,7 @@ class SinkhornDistance(nn.Module):
         return (-C + u.unsqueeze(-1) + v.unsqueeze(-2)) / self.eps
 
     @staticmethod
-    def _cost_matrix(x, y, p=2):
+    def _cost_matrix(x, y, p=1):
         """Returns the matrix of |xi−yj|p."""
         x_col = x.unsqueeze(-2)
         y_lin = y.unsqueeze(-3)
@@ -115,22 +115,38 @@ class EMDLoss(nn.Module):
     def forward(self, preds, targets, simcc_dims, target_weight=None):
         # preds   (B, K, Wx)
         # targets (B, K, 1)
+        B, K, _ = preds.shape
         relu_preds = F.relu(preds)
         preds = relu_preds / relu_preds.sum(dim=-1, keepdims=True)
 
-        d1 = targets.int()
+        d1 = targets.long().clamp(0, simcc_dims - 1)
         d2 = (d1 + 1).clamp(0, simcc_dims - 1)
 
         t1 = d2 - targets  # B, K, 1
         t2 = targets - d1  # B, K, 1
 
-        w = torch.cat([t1, t2], dim=2)  # B, K, 2
+        # w = torch.cat([t1, t2], dim=2)  # B, K, 2
+        w = torch.zeros_like(preds)
+        # print(w.shape)
+        # print(t1.shape)
+        # print(d1.shape)
+        for b in range(B):
+            for k in range(K):
+                w[b, k, d1[b, k]] = t1[b, k]
+                w[b, k, d2[b, k]] = t2[b, k]
+
+        # w[d1] = t1
+        # w[d2] = t2
+        # print(w)
 
         x = torch.arange(
             simcc_dims, dtype=torch.float,
             device=preds.device).unsqueeze(-1)  # Wx, 1
         # y = torch.arange(2).unsqueeze(-1)  # 2, 1
-        y = torch.cat([d1, d2], dim=2)  # B, K, 2
+        # y = torch.cat([d1, d2], dim=2)  # B, K, 2
+        y = torch.arange(
+            simcc_dims, dtype=torch.float,
+            device=preds.device).unsqueeze(-1)  # Wx, 1
 
         # loss = 0.
         # for b in range(preds.size(0)):
@@ -141,12 +157,13 @@ class EMDLoss(nn.Module):
         #         if target_weight is not None:
         #             t_loss *= target_weight[b, k]
         #         loss += t_loss  # Wx, 1
-        B, K, _ = preds.shape
+
         p = x[None, :].repeat((B * K, 1, 1))  # B*K, Wx, 1
-        q = y.reshape(-1, y.size(-1), 1)  # B*K, 2, 1
+        q = y[None, :].repeat((B * K, 1, 1))  # B*K, Wx, 1
+        # q = y.reshape(-1, y.size(-1), 1)  # B*K, 2, 1
         wx = preds.reshape(-1, preds.size(-1), 1)  # B*K, Wx, 1
         wy = w.reshape(-1, w.size(-1), 1)  # B*K, 2, 1
         # print('p', p.shape, 'q', q.shape, 'wx', wx.shape,'wy',wy.shape)
         loss, _, _ = self.sinkhorn(p, q, wx, wy)
 
-        return loss.sum() / B / K
+        return loss / B / K

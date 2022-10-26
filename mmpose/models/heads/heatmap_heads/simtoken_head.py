@@ -368,9 +368,8 @@ class SimTokenHead(BaseHead):
             coord_x_token = self.coord_x_token
             coord_y_token = self.coord_y_token
 
-        if self.training:
-            coord_x_token = coord_x_token.repeat((feats.size(0), 1, 1))
-            coord_y_token = coord_y_token.repeat((feats.size(0), 1, 1))
+        coord_x_token = coord_x_token.repeat((feats.size(0), 1, 1))
+        coord_y_token = coord_y_token.repeat((feats.size(0), 1, 1))
 
         pred_x = self.decoder_x((pred_x, coord_x_token, coord_x_token))
         pred_y = self.decoder_y((pred_y, coord_y_token, coord_y_token))
