@@ -3,6 +3,8 @@ from typing import Union
 
 import pykeops.torch as keops
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
 
 def sinkhorn(x: torch.Tensor,
@@ -167,3 +169,53 @@ def sinkhorn(x: torch.Tensor,
     else:
         distance = (P_ij * M_ij).sum(dim=0).sum()
     return distance, approx_corr_1, approx_corr_2
+
+
+class EMDLoss(nn.Module):
+
+    def __init__(self, use_target_weight=False):
+        super().__init__()
+        self.use_target_weight = use_target_weight
+
+    def forward(self, preds, targets, simcc_dims, target_weight=None):
+        self.simcc_dims = simcc_dims
+        self.ids1 = [x for x in range(simcc_dims - 1)]
+        self.ids2 = [x for x in range(1, simcc_dims)]
+        self.dist = torch.arange(
+            simcc_dims, device=preds.device)[None, None, :]  # 1, 1, Wx
+        # preds   (B, K, Wx)
+        # targets (B, K, 1)
+        relu_preds = F.relu(preds)
+        preds = relu_preds / relu_preds.sum(dim=-1, keepdims=True)
+
+        d1 = targets.int()
+        d2 = (d1 + 1).clamp(0, self.simcc_dims - 1)
+
+        t1 = d2 - targets
+        t2 = targets - d1
+
+        w1 = (self.dist - d1).abs()  # B, K, 1
+        w2 = (self.dist - d2).abs()  # B, K, 1
+
+        C1 = preds - t1  # B, K, Wx
+        C2 = preds - t2
+
+        cost1 = C1 * w1  # B, K, Wx
+        cost2 = C2 * w2  # B, K, Wx
+        c1 = cost1[:, :, self.ids1]
+        c2 = cost2[:, :, self.ids2]  # B, K, Wx-1
+        c = c1 + c2 + c1 * torch.log(c1) + c2 * torch.log(c2)
+
+        plan = c.argmin(dim=-1, keepdims=True)  # B, K, 1
+        loss = c[plan] / preds.size(0)  # B, K, 1
+
+        if target_weight is not None:
+            for i in range(loss.ndim - target_weight.ndim):
+                target_weight = target_weight.unsqueeze(-1)
+            loss *= target_weight
+
+        return loss.sum()
+
+
+a = torch.rand((2, 3, 6))
+b = torch.rand((2, 3, 1))
