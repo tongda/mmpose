@@ -19,6 +19,9 @@ class UncertainCLSLoss(nn.Module):
 
     def forward(self, pred, sigma, target, target_weight=None):
         sigma = sigma.sigmoid()
+        pred = F.softmax(pred, dim=-1)
+        target = F.softmax(target, dim=-1)
+
         error = sigma * (pred - target) + target
         loss = torch.log(sigma) + error  # B, K, Wx
 
@@ -83,6 +86,8 @@ class RLECLSLoss(nn.Module):
                 Weights across different joint types.
         """
         sigma = sigma.sigmoid()
+        pred = F.softmax(pred, dim=-1)
+        target = F.softmax(target, dim=-1)
 
         error = sigma * (pred - target) + target  # B, K, Wx
         # (B * K, Wx)
