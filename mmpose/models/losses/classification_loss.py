@@ -171,10 +171,10 @@ class JSLoss(nn.Module):
 
 
 @MODELS.register_module()
-class SimOTALoss(nn.Module):
+class DistanceWeightedKLLoss(nn.Module):
 
     def __init__(self, use_target_weight=True, beta=1.0, use_softmax=False):
-        super(SimOTALoss, self).__init__()
+        super(DistanceWeightedKLLoss, self).__init__()
 
         self.use_target_weight = use_target_weight
         self.beta = beta
@@ -234,6 +234,47 @@ class SimOTALoss(nn.Module):
             loss += (loss_x.sum() + loss_y.sum()) * 0.5
 
         return loss / num_joints
+
+
+# @MODELS.register_module()
+# class SimOTALoss(nn.Module):
+
+#     def __init__(self, use_target_weight=True, beta=1.0, use_softmax=False):
+#         super(SimOTALoss, self).__init__()
+
+#         self.use_target_weight = use_target_weight
+#         self.beta = beta
+#         self.k = 13
+
+#     def forward(self, pred_simcc, sigma, target_coord, gt_simcc,
+# target_weight=None):
+#         # pred_simcc   B, K, Wx
+#         # sigma        B, K, Wx
+#         # target_coord B, K, 1
+#         # gt_simcc     B, K, Wx
+#         sigma = sigma.sigmoid()
+#         pred = pred.sigmoid()
+
+#         scale_factor = -torch.abs(pred - gt_simcc).pow(self.beta)
+#         soft_cls_cost = (1 - sigma) * torch.log(1 -
+#                                        pred) + sigma * torch.log(sigma)
+#         soft_cls_cost *= scale_factor
+
+#         # 1, 1, Wx
+#         lin_x = torch.arange(
+#             pred_simcc.size(-1), device=pred_simcc.device).reshape(1, 1, -1)
+
+#         soft_gt_prior = 1  / (1 + torch.abs(lin_x - target_coord)) # B, K, Wx
+
+#         soft_sigma_loss = - torch.log(sigma)
+
+#         cost = soft_gt_prior + soft_cls_cost + soft_sigma_loss
+
+#         # dynamic k
+#         dynamic_k_sigma, _ = torch.topk(sigma, k=self.k, dim=-1)
+#         dynamic_k = torch.clamp(dynamic_k_sigma.sum(dim=-1).int(), min=1)
+
+#         torch.topk(cost, k=dynamic_k)
 
 
 @MODELS.register_module()
