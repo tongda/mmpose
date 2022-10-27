@@ -5,7 +5,7 @@ train_cfg = dict(max_epochs=420, val_interval=10)
 
 # optimizer
 max_epochs = 420
-base_lr = 4e-3
+base_lr = 5e-4
 
 # optimizer
 optim_wrapper = dict(

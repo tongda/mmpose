@@ -100,6 +100,77 @@ class JSDiscretLoss(nn.Module):
 
 
 @MODELS.register_module()
+class JSLoss(nn.Module):
+    """Discrete JS Divergence loss for SimCC with Gaussian Label Smoothing.
+
+    Modified from `the official implementation
+    <https://github.com/leeyegy/SimCC>`_.
+
+    Args:
+        use_target_weight (bool): Option to use weighted loss.
+            Different joint types may have different target weights.
+    """
+
+    def __init__(self, use_target_weight=True, beta=1.0, use_softmax=False):
+        super(KLDiscretLoss, self).__init__()
+
+        self.use_target_weight = use_target_weight
+        self.beta = beta
+        self.use_softmax = use_softmax
+
+        # self.log_softmax = nn.LogSoftmax(dim=1)  # [B,LOGITS]
+        self.kl_loss = nn.KLDivLoss(reduction='none')
+
+    def kl(self, p, q):
+        eps = 1e-24
+        kl_values = self.kl_loss((q + eps).log(), p)
+        return kl_values
+
+    def js(self, pred_hm, gt_hm):
+        m = 0.5 * (pred_hm + gt_hm)
+        js_values = 0.5 * (self.kl(pred_hm, m) + self.kl(gt_hm, m))
+        return js_values
+
+    def criterion(self, dec_outs, labels):
+        scores = F.softmax(dec_outs * self.beta, dim=1)
+        if self.use_softmax:
+            labels = F.softmax(labels * self.beta, dim=1)
+        loss = torch.mean(self.js(scores, labels), dim=1)
+        return loss
+
+    def forward(self, pred_simcc, gt_simcc, target_weight):
+        """Forward function.
+
+        Args:
+            pred_simcc (Tuple[Tensor, Tensor]): _description_
+            gt_simcc (Tuple[Tensor, Tensor]): _description_
+            target_weight (Tensor): _description_
+        """
+        output_x, output_y = pred_simcc
+        target_x, target_y = gt_simcc
+        num_joints = output_x.size(1)
+        loss = 0
+
+        for idx in range(num_joints):
+            coord_x_pred = output_x[:, idx].squeeze()
+            coord_y_pred = output_y[:, idx].squeeze()
+            coord_x_gt = target_x[:, idx].squeeze()
+            coord_y_gt = target_y[:, idx].squeeze()
+
+            if self.use_target_weight:
+                weight = target_weight[:, idx].squeeze()
+            else:
+                weight = 1.
+
+            loss += (
+                self.criterion(coord_x_pred, coord_x_gt).mul(weight).sum())
+            loss += (
+                self.criterion(coord_y_pred, coord_y_gt).mul(weight).sum())
+
+        return loss / num_joints
+
+
+@MODELS.register_module()
 class KLDiscretLoss(nn.Module):
     """Discrete KL Divergence loss for SimCC with Gaussian Label Smoothing.
 

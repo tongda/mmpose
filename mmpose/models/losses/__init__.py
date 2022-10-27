@@ -1,5 +1,5 @@
 # Copyright (c) OpenMMLab. All rights reserved.
-from .classification_loss import BCELoss, JSDiscretLoss, KLDiscretLoss
+from .classification_loss import BCELoss, JSDiscretLoss, JSLoss, KLDiscretLoss
 from .emd_loss import EMDLoss
 from .heatmap_loss import AdaptiveWingLoss
 from .iou_loss import (BoundedIoULoss, CIoULoss, DIoULoss, GIoULoss, IoULoss,
@@ -21,5 +21,5 @@ __all__ = [
     'KLDiscretLoss', 'MultipleLossWrapper', 'JSDiscretLoss',
     'CombinedTargetIOULoss', 'BoundedIoULoss', 'CIoULoss', 'DIoULoss',
     'GIoULoss', 'IoULoss', 'bounded_iou_loss', 'iou_loss', 'BalancedMSELoss',
-    'EMDLoss'
+    'EMDLoss', 'JSLoss'
 ]

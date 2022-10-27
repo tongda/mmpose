@@ -114,7 +114,7 @@ class EMDLoss(nn.Module):
 
     def forward(self, preds, targets, simcc_dims, target_weight=None):
         # preds   (B, K, Wx)
-        # targets (B, K, 1)
+        # targets (B, K)
         B, K, _ = preds.shape
         relu_preds = F.relu(preds)
         preds = relu_preds / relu_preds.sum(dim=-1, keepdims=True)

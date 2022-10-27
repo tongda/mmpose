@@ -515,9 +515,9 @@ class SimOTAHead(BaseHead):
 
         pred_simcc = (pred_x, pred_y)
         gt_simcc = (gt_x, gt_y)
-        target_x = keypoint_labels[:, :, 0:1] * self.simcc_split_ratio
+        target_x = keypoint_labels[:, :, 0] * self.simcc_split_ratio
         target_x = target_x * self.input_size[0] - 2
-        target_y = keypoint_labels[:, :, 1:2] * self.simcc_split_ratio
+        target_y = keypoint_labels[:, :, 1] * self.simcc_split_ratio
         target_y = target_y * self.input_size[1] - 2
 
         # calculate losses
