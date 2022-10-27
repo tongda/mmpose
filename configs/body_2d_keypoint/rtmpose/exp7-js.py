@@ -72,10 +72,7 @@ model = dict(
         simcc_split_ratio=codec['simcc_split_ratio'],
         deconv_out_channels=None,
         loss=dict(
-            type='KLDiscretLoss',
-            use_target_weight=True,
-            beta=10.,
-            use_softmax=True),
+            type='JSLoss', use_target_weight=True, beta=10., use_softmax=True),
         decoder=codec),
     test_cfg=dict(flip_test=True, ))
 
@@ -104,12 +101,12 @@ train_pipeline = [
         transforms=[
             dict(
                 type='CoarseDropout',
-                max_holes=8,
-                max_height=40,
-                max_width=40,
+                max_holes=1,
+                max_height=0.4,
+                max_width=0.4,
                 min_holes=1,
-                min_height=10,
-                min_width=10,
+                min_height=0.2,
+                min_width=0.2,
                 p=0.5),
         ]),
     dict(
