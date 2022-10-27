@@ -57,7 +57,8 @@ class GAU(nn.Module):
                  attn='relu2',
                  kpt_structure=False,
                  self_attn=True,
-                 shift=False):
+                 shift=False,
+                 coord_dims=512):
 
         super(GAU, self).__init__()
         self.s = s
@@ -66,8 +67,12 @@ class GAU(nn.Module):
         self.shift = shift
 
         self.e = int(hidden_size * expansion_factor)
-        # self.w = nn.Parameter(
-        #     torch.rand([2 * max_seq_length - 1], dtype=torch.float))
+        if self_attn:
+            self.w = nn.Parameter(
+                torch.rand([2 * max_seq_length - 1], dtype=torch.float))
+        else:
+            self.w = nn.Parameter(
+                torch.rand([2 * coord_dims - 1], dtype=torch.float))
         # self.a = nn.Parameter(torch.rand([1, self.s], dtype=torch.float))
         # self.b = nn.Parameter(torch.rand([1, self.s], dtype=torch.float))
         self.o = nn.Linear(self.e, output_size)
@@ -204,9 +209,7 @@ class GAU(nn.Module):
         # qk = torch.einsum('bnd,bmd->bnm', q, k)
         qk = torch.bmm(q, k.permute(0, 2, 1))
         # print('q', q.shape, 'k', k.shape, 'qk', qk.shape)
-        # bias = self.rel_pos_bias(
-        # self.max_seq_length)[:, :q.size(1), :k.size(1)]
-        # print('bias', bias.shape)
+
         if self.attn == 'softmax':
             kernel = F.softmax(
                 self.log_n * self.max_seq_length * qk / self.sqrt_s, dim=-1)
@@ -215,6 +218,11 @@ class GAU(nn.Module):
                 (qk - self.mu) / (self.std * math.sqrt(2)))) * 0.5 / self.s
         else:
             kernel = torch.square(F.relu(qk / self.sqrt_s))
+
+        bias = self.rel_pos_bias(max(q.size(1),
+                                     k.size(1)))[:, :q.size(1), :k.size(1)]
+        # print('bias', bias.shape)
+        kernel += bias
 
         if self.use_dropout:
             kernel = self.dropout(kernel)

@@ -515,18 +515,11 @@ class SimOTAHead(BaseHead):
 
         pred_simcc = (pred_x, pred_y)
         gt_simcc = (gt_x, gt_y)
-        target_x = keypoint_labels[:, :, 0] * self.simcc_split_ratio
-        target_x = target_x * self.input_size[0] - 2
-        target_y = keypoint_labels[:, :, 1] * self.simcc_split_ratio
-        target_y = target_y * self.input_size[1] - 2
 
         # calculate losses
         losses = dict()
-        loss = self.loss_module(pred_x, target_x, pred_x.size(-1),
+        loss = self.loss_module(pred_simcc, gt_simcc, keypoint_labels,
                                 keypoint_weights)
-        loss += self.loss_module(pred_y, target_y, pred_y.size(-1),
-                                 keypoint_weights)
-        loss *= 0.5
 
         losses.update(loss_kpt=loss)
 
@@ -540,30 +533,6 @@ class SimOTAHead(BaseHead):
 
         acc_pose = torch.tensor(avg_acc, device=gt_x.device)
         losses.update(simcc_pose=acc_pose)
-
-        # idx_x = [[i, i + 1] for i in range(pred_x.size(-1) - 1)]
-        # px = pred_x[:, :, idx_x].sum(dim=-1)  # B, K, Wx-1
-        # x1 = px.argmax(dim=-1, keepdim=True)
-        # x2 = x1 + 1
-        # fin_x = x1 * pred_x[x1] + x2 * pred_x[x2]
-
-        # idx_y = [[i, i + 1] for i in range(pred_y.size(-1) - 1)]
-        # py = pred_y[:, :, idx_y].sum(dim=-1)  # B, K, Wx-1
-        # y1 = py.argmax(dim=-1, keepdim=True)
-        # y2 = y1 + 1
-        # fin_y = y1 * pred_y[y1] + y2 * pred_y[y2]  # B, K,
-        # pred_coords = torch.stack([fin_x, fin_y], dim=-1)  # B, K, 2
-
-        # # calculate accuracy
-        # _, avg_acc, _ = keypoint_pck_accuracy(
-        #     pred=to_numpy(pred_coords),
-        #     gt=to_numpy(keypoint_labels),
-        #     mask=to_numpy(keypoint_weights) > 0,
-        #     thr=0.05,
-        #     norm_factor=np.ones((pred_coords.size(0), 2), dtype=np.float32))
-
-        # acc_pose = torch.tensor(avg_acc, device=keypoint_labels.device)
-        # losses.update(acc_pose=acc_pose)
 
         return losses
 

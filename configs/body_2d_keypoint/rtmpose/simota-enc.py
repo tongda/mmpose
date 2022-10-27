@@ -103,7 +103,11 @@ model = dict(
         s=128,
         shift=True,
         attn='laplacian',
-        loss=dict(type='EMDLoss', use_target_weight=True),
+        loss=dict(
+            type='SimOTALoss',
+            use_target_weight=True,
+            beta=10,
+            use_softmax=True),
         decoder=codec),
     test_cfg=dict(flip_test=True, ))
 

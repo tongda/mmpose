@@ -171,6 +171,72 @@ class JSLoss(nn.Module):
 
 
 @MODELS.register_module()
+class SimOTALoss(nn.Module):
+
+    def __init__(self, use_target_weight=True, beta=1.0, use_softmax=False):
+        super(SimOTALoss, self).__init__()
+
+        self.use_target_weight = use_target_weight
+        self.beta = beta
+        self.use_softmax = use_softmax
+
+        self.log_softmax = nn.LogSoftmax(dim=1)  # [B,LOGITS]
+        self.kl_loss = nn.KLDivLoss(reduction='none')
+
+    def criterion(self, dec_outs, labels):
+        scores = self.log_softmax(dec_outs * self.beta)
+        if self.use_softmax:
+            labels = F.softmax(labels * self.beta, dim=1)
+        loss = self.kl_loss(scores, labels)  # B, K, Wx
+        return loss
+
+    def forward(self, pred_simcc, gt_simcc, gt_coords, target_weight):
+        """Forward function.
+
+        Args:
+            pred_simcc (Tuple[Tensor, Tensor]): _description_
+            gt_simcc (Tuple[Tensor, Tensor]): _description_
+            target_weight (Tensor): _description_
+        """
+        output_x, output_y = pred_simcc
+        target_x, target_y = gt_simcc
+        coord_x, coord_y = gt_coords[:, :, 0:1], gt_coords[:, :, 1:2]
+        num_joints = output_x.size(1)
+        lin_x = torch.arange(
+            target_x.size(-1), device=output_x.device).reshape(1, 1,
+                                                               -1)  # 1, 1, Wx
+        lin_y = torch.arange(
+            target_y.size(-1), device=output_y.device).reshape(1, 1,
+                                                               -1)  # 1, 1, Wy
+        loss = 0
+
+        for idx in range(num_joints):
+            coord_x_pred = output_x[:, idx].squeeze()
+            coord_y_pred = output_y[:, idx].squeeze()
+            coord_x_gt = target_x[:, idx].squeeze()
+            coord_y_gt = target_y[:, idx].squeeze()
+
+            if self.use_target_weight:
+                weight = target_weight[:, idx].squeeze()
+            else:
+                weight = 1.
+
+            # B, K, 1 - 1, 1, Wx  ->  B, K, Wx
+            wx = 1 / (1 + torch.abs(lin_x - coord_x))
+            loss_x = self.criterion(coord_x_pred, coord_x_gt)  # B, K, Wx
+            loss_x *= weight * wx  # B, K, Wx
+
+            # B, K, 1 - 1, 1, Wx  ->  B, K, Wx
+            wy = 1 / (1 + torch.abs(lin_y - coord_y))
+            loss_y = self.criterion(coord_y_pred, coord_y_gt)  # B, K, Wx
+            loss_y *= weight * wy  # B, K, Wx
+
+            loss += (loss_x.sum() + loss_y.sum()) * 0.5
+
+        return loss / num_joints
+
+
+@MODELS.register_module()
 class KLDiscretLoss(nn.Module):
     """Discrete KL Divergence loss for SimCC with Gaussian Label Smoothing.
 
