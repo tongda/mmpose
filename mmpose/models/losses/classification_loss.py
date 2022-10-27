@@ -200,7 +200,7 @@ class DistanceWeightedKLLoss(nn.Module):
         """
         output_x, output_y = pred_simcc
         target_x, target_y = gt_simcc
-        coord_x, coord_y = gt_coords[:, :, 0:1], gt_coords[:, :, 1:2]
+        coord_x, coord_y = gt_coords[:, :, 0], gt_coords[:, :, 1]
         num_joints = output_x.size(1)
         lin_x = torch.arange(
             target_x.size(-1), device=output_x.device).reshape(1,
