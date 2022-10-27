@@ -203,10 +203,10 @@ class SimOTALoss(nn.Module):
         coord_x, coord_y = gt_coords[:, :, 0:1], gt_coords[:, :, 1:2]
         num_joints = output_x.size(1)
         lin_x = torch.arange(
-            target_x.size(-1), device=output_x.device).reshape(1, 1,
+            target_x.size(-1), device=output_x.device).reshape(1,
                                                                -1)  # 1, 1, Wx
         lin_y = torch.arange(
-            target_y.size(-1), device=output_y.device).reshape(1, 1,
+            target_y.size(-1), device=output_y.device).reshape(1,
                                                                -1)  # 1, 1, Wy
         loss = 0
 
@@ -221,15 +221,15 @@ class SimOTALoss(nn.Module):
             else:
                 weight = 1.
 
-            # B, K, 1 - 1, 1, Wx  ->  B, K, Wx
+            # B, 1 - 1, Wx  ->  B, Wx
             wx = 1 / (1 + torch.abs(lin_x - coord_x))
-            loss_x = self.criterion(coord_x_pred, coord_x_gt)  # B, K, Wx
-            loss_x *= weight * wx  # B, K, Wx
+            loss_x = self.criterion(coord_x_pred, coord_x_gt)  # B, Wx
+            loss_x *= weight * wx  # B, Wx
 
-            # B, K, 1 - 1, 1, Wx  ->  B, K, Wx
+            # B, 1 - 1, Wx  ->  B, Wx
             wy = 1 / (1 + torch.abs(lin_y - coord_y))
-            loss_y = self.criterion(coord_y_pred, coord_y_gt)  # B, K, Wx
-            loss_y *= weight * wy  # B, K, Wx
+            loss_y = self.criterion(coord_y_pred, coord_y_gt)  # B, Wx
+            loss_y *= weight * wy  # B, Wx
 
             loss += (loss_x.sum() + loss_y.sum()) * 0.5
 

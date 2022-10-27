@@ -23,22 +23,25 @@ OptIntSeq = Optional[Sequence[int]]
 
 class SE(nn.Module):
 
-    def __init__(self, num_token, in_channels, out_channels):
+    def __init__(self, num_token, in_channels):
         super().__init__()
         # self.fc1 = nn.Linear(dims, dims)
         # self.fc_out = nn.Linear(dims, dims)
         self.fc1 = GAU(num_token, in_channels, in_channels)
-        self.fc_out = GAU(num_token, in_channels, out_channels)
+        # self.fc_out = GAU(num_token, in_channels, out_channels)
 
     def forward(self, x):
         w = self.fc1(x).sigmoid()
         x = x * w
-        x = self.fc_out(x)
+        # if m is not None:
+        #     x = self.fc_out((x, m, m))
+        # else:
+        #     x = self.fc_out(x)
         return x
 
 
 @MODELS.register_module()
-class SimKCM_Sigma_Head(BaseHead):
+class Sigma_Head(BaseHead):
     """Top-down heatmap head introduced in `SimCC`_ by Li et al (2022). The
     head is composed of a few deconvolutional layers followed by a fully-
     connected layer to generate 1d representation from low-resolution feature
@@ -109,8 +112,10 @@ class SimKCM_Sigma_Head(BaseHead):
         in_featuremap_size: Tuple[int, int],
         simcc_split_ratio: float = 2.0,
         hidden_dims: int = 256,
+        coord_gau: bool = False,
         num_enc: int = 1,
         rdrop: bool = False,
+        refine: bool = False,
         s: int = 128,
         dlinear: bool = False,
         individual: bool = False,
@@ -151,13 +156,15 @@ class SimKCM_Sigma_Head(BaseHead):
         self.simcc_split_ratio = simcc_split_ratio
         self.use_hilbert_flatten = use_hilbert_flatten
         self.use_dropout = use_dropout
-        self.num_enc = num_enc
         self.rdrop = rdrop
+        self.refine = refine
+        self.num_enc = num_enc
         self.dlinear = dlinear
         self.individual = individual
         self.s = s
         self.shift = shift
         self.attn = attn
+        self.coord_gau = coord_gau
         self.align_corners = align_corners
         self.input_transform = input_transform
         self.input_index = input_index
@@ -249,14 +256,48 @@ class SimKCM_Sigma_Head(BaseHead):
         ]
         self.encoder = nn.Sequential(*encoder)
 
-        self.mlp_x = SE(
-            num_token=self.out_channels,
-            in_channels=hidden_dims,
-            out_channels=W)
-        self.mlp_y = SE(
-            num_token=self.out_channels,
-            in_channels=hidden_dims,
-            out_channels=H)
+        self.mlp_x = SE(num_token=self.out_channels, in_channels=hidden_dims)
+        self.mlp_y = SE(num_token=self.out_channels, in_channels=hidden_dims)
+
+        self.coord_x_token = nn.Parameter(torch.randn((1, W, hidden_dims)))
+        self.coord_y_token = nn.Parameter(torch.randn((1, H, hidden_dims)))
+
+        if self.coord_gau:
+            self.coord_x = GAU(
+                W,
+                hidden_dims,
+                hidden_dims,
+                s=s,
+                use_dropout=use_dropout,
+                attn=attn,
+                shift=shift)
+            self.coord_y = GAU(
+                H,
+                hidden_dims,
+                hidden_dims,
+                s=s,
+                use_dropout=use_dropout,
+                attn=attn,
+                shift=shift)
+
+        self.decoder_x = GAU(
+            self.out_channels,
+            hidden_dims,
+            hidden_dims,
+            s=s,
+            use_dropout=use_dropout,
+            self_attn=False,
+            attn=attn,
+            shift=shift)
+        self.decoder_y = GAU(
+            self.out_channels,
+            hidden_dims,
+            hidden_dims,
+            s=s,
+            use_dropout=use_dropout,
+            self_attn=False,
+            attn=attn,
+            shift=shift)
 
         if self.dlinear:
             self.refine_x = DLinear(
@@ -323,13 +364,36 @@ class SimKCM_Sigma_Head(BaseHead):
         pred_x = self.mlp_x(feats)
         pred_y = self.mlp_y(feats)
 
-        sigma_x, sigma_y = self.sigma_x(feats).sigmoid(), self.sigma_y(
-            feats).sigmoid()
+        if self.coord_gau:
+            coord_x_token = self.coord_x(self.coord_x_token)  # 1, Wx, hidden
+            coord_y_token = self.coord_y(self.coord_y_token)
+        else:
+            coord_x_token = self.coord_x_token
+            coord_y_token = self.coord_y_token
 
-        pred_x = self.refine_x(pred_x)
-        pred_y = self.refine_y(pred_y)
+        coord_x_token = coord_x_token.repeat((feats.size(0), 1, 1))
+        coord_y_token = coord_y_token.repeat((feats.size(0), 1, 1))
 
-        return pred_x, pred_y, sigma_x, sigma_y
+        pred_x = self.decoder_x((pred_x, coord_x_token, coord_x_token))
+        pred_y = self.decoder_y((pred_y, coord_y_token, coord_y_token))
+
+        sigma_x = self.sigma_x(pred_x)
+        sigma_y = self.sigma_y(pred_y)
+
+        pred_x = torch.bmm(pred_x, coord_x_token.permute(0, 2, 1))
+        pred_y = torch.bmm(pred_y, coord_y_token.permute(0, 2, 1))
+
+        if self.refine and self.training:
+            pred_x = (pred_x, self.refine_x(pred_x))
+            pred_y = (pred_y, self.refine_y(pred_y))
+        else:
+            pred_x = self.refine_x(pred_x)
+            pred_y = self.refine_y(pred_y)
+
+        if self.training:
+            return pred_x, pred_y, sigma_x, sigma_y
+        else:
+            return pred_x, pred_y
 
     def forward(self, feats: Tuple[Tensor]) -> Tuple[Tensor, Tensor]:
         """Forward the network. The input is multi scale feature maps and the
@@ -354,19 +418,9 @@ class SimKCM_Sigma_Head(BaseHead):
         if self.use_hilbert_flatten:
             feats = feats[:, :, self.hilbert_mapping]
 
-        if self.rdrop and self.training:
-            feats_copy = feats.clone()
-            pred_x2, pred_y2, sigma_x2, sigma_y2 = self._forward(feats_copy)
+        res = self._forward(feats)
 
-        pred_x, pred_y, sigma_x, sigma_y = self._forward(feats)
-
-        if self.rdrop and self.training:
-            pred_x = (pred_x, pred_x2)
-            pred_y = (pred_y, pred_y2)
-            sigma_x = (sigma_x, sigma_x2)
-            sigma_y = (sigma_x, sigma_y2)
-
-        return pred_x, pred_y, sigma_x, sigma_y
+        return res
 
     def predict(
         self,
@@ -405,10 +459,9 @@ class SimKCM_Sigma_Head(BaseHead):
             flip_indices = batch_data_samples[0].metainfo['flip_indices']
             _feats, _feats_flip = feats
 
-            _batch_pred_x, _batch_pred_y, _, _ = self.forward(_feats)
+            _batch_pred_x, _batch_pred_y = self.forward(_feats)
 
-            _batch_pred_x_flip, _batch_pred_y_flip, _, _ = self.forward(
-                _feats_flip)
+            _batch_pred_x_flip, _batch_pred_y_flip = self.forward(_feats_flip)
             _batch_pred_x_flip, _batch_pred_y_flip = flip_vectors(
                 _batch_pred_x_flip,
                 _batch_pred_y_flip,
@@ -417,7 +470,7 @@ class SimKCM_Sigma_Head(BaseHead):
             batch_pred_x = (_batch_pred_x + _batch_pred_x_flip) * 0.5
             batch_pred_y = (_batch_pred_y + _batch_pred_y_flip) * 0.5
         else:
-            batch_pred_x, batch_pred_y, _, _ = self.forward(feats)
+            batch_pred_x, batch_pred_y = self.forward(feats)
 
         preds = self.decode((batch_pred_x, batch_pred_y))
 
@@ -441,12 +494,6 @@ class SimKCM_Sigma_Head(BaseHead):
 
         pred_x, pred_y, sigma_x, sigma_y = self.forward(feats)
 
-        if self.rdrop:
-            pred_x, pred_x2 = pred_x
-            pred_y, pred_y2 = pred_y
-            sigma_x, sigma_x2 = sigma_x
-            sigma_y, sigma_y2 = sigma_y
-
         gt_x = torch.cat([
             d.gt_instance_labels.keypoint_x_labels for d in batch_data_samples
         ],
@@ -468,19 +515,9 @@ class SimKCM_Sigma_Head(BaseHead):
 
         # calculate losses
         losses = dict()
-        loss = self.loss_module(pred_x, gt_x, sigma_x, keypoint_weights)
-        loss += self.loss_module(pred_y, gt_y, sigma_y, keypoint_weights)
-
-        if self.rdrop:
-            loss += self.loss_module(pred_x2, gt_x, sigma_x2, keypoint_weights)
-            loss += self.loss_module(pred_y2, gt_y, sigma_y2, keypoint_weights)
-            loss *= 0.5
-            kl_loss = self.loss_module(pred_x, pred_x2, sigma_x,
-                                       keypoint_weights)
-            kl_loss += self.loss_module(pred_x2, pred_x, sigma_x2,
-                                        keypoint_weights)
-            kl_loss = kl_loss * 0.5
-            loss += 5 * kl_loss
+        loss = self.loss_module(pred_x, sigma_x, gt_x, keypoint_weights)
+        loss += self.loss_module(pred_y, sigma_y, gt_y, keypoint_weights)
+        loss *= 0.5
 
         losses.update(loss_kpt=loss)
 
