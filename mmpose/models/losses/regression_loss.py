@@ -10,6 +10,38 @@ from ..utils.realnvp import RealNVP
 
 
 @MODELS.register_module()
+class QFL(nn.Module):
+
+    def __init__(self, beta=2.0, use_target_weight=False, size_average=True):
+        super(QFL, self).__init__()
+        self.size_average = size_average
+        self.use_target_weight = use_target_weight
+        self.beta = beta
+
+    def forward(self, pred, sigma, target, target_weight=None):
+        sigma = sigma.sigmoid()
+        pred_sigmoid = pred.sigmoid()
+
+        scale_factor = -torch.abs(pred_sigmoid - target).pow(self.beta)
+        loss = (1 - sigma) * torch.log(1 -
+                                       pred_sigmoid) + sigma * torch.log(sigma)
+        loss *= scale_factor
+
+        if self.use_target_weight:
+            assert target_weight is not None
+
+            for _ in range(loss.ndim - target_weight.ndim):
+                target_weight = target_weight.unsqueeze(-1)
+
+            loss *= target_weight
+
+        if self.size_average:
+            loss /= len(loss)
+
+        return loss.sum()
+
+
+@MODELS.register_module()
 class UncertainCLSLoss(nn.Module):
 
     def __init__(self, use_target_weight=False, size_average=True):
