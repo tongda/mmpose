@@ -42,36 +42,6 @@ class QFL(nn.Module):
 
 
 @MODELS.register_module()
-class UncertainCLSLoss(nn.Module):
-
-    def __init__(self, use_target_weight=False, size_average=True):
-        super(UncertainCLSLoss, self).__init__()
-        self.size_average = size_average
-        self.use_target_weight = use_target_weight
-
-    def forward(self, pred, sigma, target, target_weight=None):
-        sigma = sigma.sigmoid()
-        pred = F.softmax(pred, dim=-1)
-        target = F.softmax(target, dim=-1)
-
-        error = sigma * (pred - target) + target
-        loss = torch.log(sigma) + error  # B, K, Wx
-
-        if self.use_target_weight:
-            assert target_weight is not None
-
-            for _ in range(loss.ndim - target_weight.ndim):
-                target_weight = target_weight.unsqueeze(-1)
-
-            loss *= target_weight
-
-        if self.size_average:
-            loss /= len(loss)
-
-        return loss.sum()
-
-
-@MODELS.register_module()
 class RLECLSLoss(nn.Module):
     """RLE Loss.
 
@@ -124,9 +94,8 @@ class RLECLSLoss(nn.Module):
         error = sigma * (pred - target) + target  # B, K, Wx
         # (B * K, Wx)
         log_phi = self.flow_model.log_prob(error.reshape(-1, 1))
-        log_phi = log_phi.reshape(target.size(0), target.size(1), 1)
-        log_sigma = torch.log(sigma).reshape(target.shape[0], target.shape[1],
-                                             sigma.size(-1))
+        log_phi = log_phi.reshape(target.shape)
+        log_sigma = torch.log(sigma).reshape(target.shape)
         nf_loss = log_sigma - log_phi
 
         if self.residual:

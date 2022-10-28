@@ -65,6 +65,14 @@ codec = dict(
     normalize=False,
     use_dark=True)
 
+decoder = dict(
+    type='SimCCLabel',
+    input_size=(192, 256),
+    sigma=(4.9, 5.66),
+    simcc_split_ratio=2.0,
+    normalize=False,
+    use_dark=True)
+
 # model settings
 model = dict(
     type='TopdownPoseEstimator',
@@ -105,7 +113,7 @@ model = dict(
         attn='laplacian',
         loss=dict(
             type='RLECLSLoss', use_target_weight=True, size_average=True),
-        decoder=codec),
+        decoder=decoder),
     test_cfg=dict(flip_test=True, ))
 
 # base dataset settings
