@@ -23,8 +23,8 @@ class QFL(nn.Module):
         pred_sigmoid = pred.sigmoid()
 
         scale_factor = -torch.abs(pred_sigmoid - target).pow(self.beta)
-        loss = (1 - sigma) * torch.log(1 -
-                                       pred_sigmoid) + sigma * torch.log(sigma)
+        loss = (1 - sigma) * torch.log(1 - pred_sigmoid) + sigma * torch.log(
+            pred_sigmoid)
         loss *= scale_factor
 
         if self.use_target_weight:
@@ -95,7 +95,7 @@ class RLECLSLoss(nn.Module):
         # (B * K, Wx)
         log_phi = self.flow_model.log_prob(error.reshape(-1, 1))
         log_phi = log_phi.reshape(target.shape)
-        log_sigma = torch.log(sigma).reshape(target.shape)
+        log_sigma = -torch.log(sigma).reshape(target.shape)
         nf_loss = log_sigma - log_phi
 
         if self.residual:
