@@ -225,12 +225,13 @@ class DistanceWeightedKLLoss(nn.Module):
                 weight = 1.
 
             # B, 1 - 1, Wx  ->  B, Wx
-            wx = 1 / (1 + torch.abs(lin_x - coord_x))  # B, Wx
+            # wx = 1 / (1 + torch.abs(lin_x - coord_x))  # B, Wx
+            wx = 1 / (1 + (lin_x - coord_x).pow(2).sqrt())  # B, Wx
             loss_x = self.criterion(coord_x_pred, coord_x_gt)  # B, Wx
             loss_x *= weight * wx  # B, Wx
 
             # B, 1 - 1, Wx  ->  B, Wx
-            wy = 1 / (1 + torch.abs(lin_y - coord_y))
+            wy = 1 / (1 + (lin_y - coord_y).pow(2).sqrt())
             loss_y = self.criterion(coord_y_pred, coord_y_gt)  # B, Wx
             loss_y *= weight * wy  # B, Wx
 
@@ -249,13 +250,13 @@ class UncertainCLSLoss(nn.Module):
         self.beta = beta
         self.use_softmax = use_softmax
 
-        self.log_softmax = nn.LogSoftmax(dim=1)  # [B,LOGITS]
         self.kl_loss = nn.KLDivLoss(reduction='none')
 
-    def criterion(self, dec_outs, labels):
-        scores = self.log_softmax(dec_outs * self.beta)
+    def criterion(self, dec_outs, sigma, labels):
         if self.use_softmax:
             labels = F.softmax(labels * self.beta, dim=1)
+        pred = F.softmax(dec_outs * self.beta, dim=-1)
+        scores = (sigma * pred + (1 - sigma) * labels + 1e-9).log()
         loss = self.kl_loss(scores, labels)  # B, K, Wx
         return loss
 
@@ -269,9 +270,9 @@ class UncertainCLSLoss(nn.Module):
         """
         # coord_x, coord_y = gt_coords[:, :, 0:1], gt_coords[:, :, 1:2]
         num_joints = pred_simcc.size(1)
+        sigma = sigma.sigmoid()
 
         loss = 0
-
         for idx in range(num_joints):
             coord_x_pred = pred_simcc[:, idx].squeeze()
             coord_x_gt = gt_simcc[:, idx].squeeze()
@@ -284,8 +285,8 @@ class UncertainCLSLoss(nn.Module):
                 weight = 1.
 
             # B, 1 - 1, Wx  ->  B, Wx
-            px = i_sigma_x * (coord_x_pred - coord_x_gt) + coord_x_gt
-            loss_x = self.criterion(px, coord_x_gt) - torch.log(i_sigma_x)
+            loss_x = self.criterion(coord_x_pred, i_sigma_x, coord_x_gt)
+            loss_x += -torch.log(i_sigma_x)
             loss_x *= weight
 
             loss += loss_x.sum()

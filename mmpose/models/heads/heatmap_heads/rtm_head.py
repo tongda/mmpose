@@ -162,28 +162,28 @@ class RTMHead(BaseHead):
                 attn=attn,
                 shift=shift)
 
-        # if use_decoder:
-        #   self.coord_x_token = nn.Parameter(torch.randn((1, W, hidden_dims)))
-        #   self.coord_y_token = nn.Parameter(torch.randn((1, H, hidden_dims)))
+        if use_decoder:
+            self.coord_x_token = nn.Parameter(torch.randn((1, W, hidden_dims)))
+            self.coord_y_token = nn.Parameter(torch.randn((1, H, hidden_dims)))
 
-        #     self.decoder_x = GAU(
-        #         self.out_channels,
-        #         hidden_dims,
-        #         W,
-        #         s=s,
-        #         use_dropout=use_dropout,
-        #         self_attn=not use_decoder,
-        #         attn=attn,
-        #         shift=shift)
-        #     self.decoder_y = GAU(
-        #         self.out_channels,
-        #         hidden_dims,
-        #         H,
-        #         s=s,
-        #         use_dropout=use_dropout,
-        #         self_attn=not use_decoder,
-        #         attn=attn,
-        #         shift=shift)
+            self.decoder_x = GAU(
+                self.out_channels,
+                hidden_dims,
+                W,
+                s=s,
+                use_dropout=use_dropout,
+                self_attn=not cross_attn,
+                attn=attn,
+                shift=shift)
+            self.decoder_y = GAU(
+                self.out_channels,
+                hidden_dims,
+                H,
+                s=s,
+                use_dropout=use_dropout,
+                self_attn=not cross_attn,
+                attn=attn,
+                shift=shift)
 
     def forward(self, feats: Tuple[Tensor]) -> Tuple[Tensor, Tensor]:
         """Forward the network. The input is multi scale feature maps and the
@@ -201,7 +201,7 @@ class RTMHead(BaseHead):
         feats = self.final_layer(feats)
 
         # flatten the output heatmap
-        feats = torch.flatten(feats, -1)
+        feats = torch.flatten(feats, 2)
         if self.use_hilbert_flatten:
             feats = feats[:, :, self.hilbert_mapping]
 
@@ -212,19 +212,19 @@ class RTMHead(BaseHead):
         pred_x = self.mlp_x(feats)
         pred_y = self.mlp_y(feats)
 
-        # if self.use_decoder:
-        #     coord_x_token = self.coord_x_token.repeat((feats.size(0), 1, 1))
-        #     coord_y_token = self.coord_y_token.repeat((feats.size(0), 1, 1))
+        if self.use_decoder:
+            coord_x_token = self.coord_x_token.repeat((feats.size(0), 1, 1))
+            coord_y_token = self.coord_y_token.repeat((feats.size(0), 1, 1))
 
-        #     if self.cross_attn:
-        #       pred_x = self.decoder_x((pred_x, coord_x_token, coord_x_token))
-        #       pred_y = self.decoder_y((pred_y, coord_y_token, coord_y_token))
-        #     else:
-        #         pred_x = self.decoder_x(pred_x)
-        #         pred_y = self.decoder_y(pred_y)
+            if self.cross_attn:
+                pred_x = self.decoder_x((pred_x, coord_x_token, coord_x_token))
+                pred_y = self.decoder_y((pred_y, coord_y_token, coord_y_token))
+            else:
+                pred_x = self.decoder_x(pred_x)
+                pred_y = self.decoder_y(pred_y)
 
-        #     pred_x = torch.bmm(pred_x, coord_x_token.permute(0, 2, 1))
-        #     pred_y = torch.bmm(pred_y, coord_y_token.permute(0, 2, 1))
+            pred_x = torch.bmm(pred_x, coord_x_token.permute(0, 2, 1))
+            pred_y = torch.bmm(pred_y, coord_y_token.permute(0, 2, 1))
 
         return pred_x, pred_y
 
