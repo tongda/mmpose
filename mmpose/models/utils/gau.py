@@ -185,7 +185,13 @@ class GAU(nn.Module):
 
         if self.shift:
             x_shift, x_pass = x.chunk(2, dim=-1)
-            x_shift = F.pad(x_shift, (0, 0, 1, -1), value=0.)
+            if self.max_seq_length != 17:
+                x_shift = F.pad(x_shift, (0, 0, 1, -1), value=0.)
+            else:
+                shift_idx = [
+                    0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 5, 6, 11, 12, 13, 14
+                ]
+                x_shift = x_shift[:, shift_idx, :]
             x = torch.cat((x_shift, x_pass), dim=-1)
 
         uv = self.uv(x)
@@ -201,6 +207,15 @@ class GAU(nn.Module):
 
         else:
             u, q = torch.split(self.act_fn(uv), [self.e, self.s], dim=-1)
+
+            if self.shift:
+                k_shift, k_pass = k.chunk(2, dim=-1)
+                k_shift = F.pad(k_shift, (0, 0, 1, -1), value=0.)
+                k = torch.cat((k_shift, k_pass), dim=-1)
+
+                v_shift, v_pass = v.chunk(2, dim=-1)
+                v_shift = F.pad(v_shift, (0, 0, 1, -1), value=0.)
+                v = torch.cat((v_shift, v_pass), dim=-1)
             k = self.k_fc(k)
             v = self.v_fc(v)
             # q = self.rope(q, 1)
