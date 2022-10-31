@@ -99,6 +99,8 @@ class GAU(nn.Module):
         elif attn == 'laplacian':
             self.mu = math.sqrt(0.5)
             self.std = math.sqrt(0.25 * math.pi)
+        elif attn == 'starrelu':
+            self.star_relu = StarReLU()
 
         self.sqrt_s = math.sqrt(s)
 
@@ -224,6 +226,10 @@ class GAU(nn.Module):
         # qk = torch.einsum('bnd,bmd->bnm', q, k)
         qk = torch.bmm(q, k.permute(0, 2, 1))
         # print('q', q.shape, 'k', k.shape, 'qk', qk.shape)
+        bias = self.rel_pos_bias(max(q.size(1),
+                                     k.size(1)))[:, :q.size(1), :k.size(1)]
+        # print('bias', bias.shape)
+        qk += bias
 
         if self.attn == 'softmax':
             kernel = F.softmax(
@@ -231,13 +237,10 @@ class GAU(nn.Module):
         elif self.attn == 'laplacian':
             kernel = (1 + torch.special.erf(
                 (qk - self.mu) / (self.std * math.sqrt(2)))) * 0.5 / self.s
+        elif self.attn == 'starrelu':
+            kernel = self.star_relu(qk / self.sqrt_s)
         else:
             kernel = torch.square(F.relu(qk / self.sqrt_s))
-
-        bias = self.rel_pos_bias(max(q.size(1),
-                                     k.size(1)))[:, :q.size(1), :k.size(1)]
-        # print('bias', bias.shape)
-        kernel += bias
 
         if self.use_dropout:
             kernel = self.dropout(kernel)

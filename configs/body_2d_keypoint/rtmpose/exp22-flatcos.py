@@ -25,10 +25,10 @@ param_scheduler = [
     dict(
         # use cosine lr from 150 to 300 epoch
         type='CosineAnnealingLR',
-        eta_min=base_lr * 0.05,
-        begin=max_epochs // 2,
+        eta_min=base_lr * 0.01,
+        begin=max_epochs // 3,
         end=max_epochs,
-        T_max=max_epochs // 2,
+        T_max=2 * max_epochs // 3,
         by_epoch=True,
         convert_to_iter_based=True),
 ]
@@ -42,7 +42,7 @@ codec = dict(
     input_size=(192, 256),
     sigma=(4.9, 5.66),
     simcc_split_ratio=2.0,
-    normalize=False,
+    normalize=True,
     use_dark=True)
 
 # model settings
@@ -70,7 +70,7 @@ model = dict(
         input_size=codec['input_size'],
         in_featuremap_size=(6, 8),
         simcc_split_ratio=codec['simcc_split_ratio'],
-        use_hilbert_flatten=True,
+        use_hilbert_flatten=False,
         hidden_dims=256,
         s=128,
         shift=True,
@@ -80,7 +80,7 @@ model = dict(
         use_se=True,
         num_enc=1,
         cross_attn=True,
-        loss=dict(type='SimCCBCELoss', use_target_weight=True),
+        loss=dict(type='KLDiscretLoss', use_target_weight=True),
         decoder=codec),
     test_cfg=dict(flip_test=True, ))
 
