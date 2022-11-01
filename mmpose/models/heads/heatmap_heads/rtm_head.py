@@ -22,7 +22,7 @@ OptIntSeq = Optional[Sequence[int]]
 
 class SE(nn.Module):
 
-    def __init__(self, num_token, in_channels, out_channels):
+    def __init__(self, num_token, in_channels):
         super().__init__()
         # self.fc1 = nn.Linear(dims, dims)
         # self.fc_out = nn.Linear(dims, dims)
@@ -139,13 +139,9 @@ class RTMHead(BaseHead):
 
         if use_se:
             self.mlp_x = SE(
-                num_token=self.out_channels,
-                in_channels=hidden_dims,
-                out_channels=W)
+                num_token=self.out_channels, in_channels=hidden_dims)
             self.mlp_y = SE(
-                num_token=self.out_channels,
-                in_channels=hidden_dims,
-                out_channels=H)
+                num_token=self.out_channels, in_channels=hidden_dims)
         else:
             self.mlp_x = GAU(
                 self.out_channels,
@@ -197,7 +193,7 @@ class RTMHead(BaseHead):
                 W,
                 s=s,
                 use_dropout=use_dropout,
-                self_attn=not cross_attn,
+                self_attn=True,
                 attn=attn,
                 shift=shift)
             self.refine_y = GAU(
@@ -206,7 +202,7 @@ class RTMHead(BaseHead):
                 H,
                 s=s,
                 use_dropout=use_dropout,
-                self_attn=not cross_attn,
+                self_attn=True,
                 attn=attn,
                 shift=shift)
 

@@ -57,8 +57,8 @@ model = dict(
         type='CSPNeXt',
         arch='P5',
         expand_ratio=0.5,
-        deepen_factor=0.33,
-        widen_factor=0.5,
+        deepen_factor=0.67,
+        widen_factor=0.75,
         out_indices=(4, ),
         channel_attention=True,
         act_cfg=dict(type='SiLU'),
@@ -66,10 +66,10 @@ model = dict(
             type='Pretrained',
             prefix='backbone.',
             checkpoint='/mnt/petrelfs/jiangtao/pretrained_models/'
-            'cspnext-s_coco_256x192.pth')),
+            'cspnext-m_coco_256x192.pth')),
     head=dict(
         type='RTMHead',
-        in_channels=512,
+        in_channels=768,
         out_channels=17,
         input_size=codec['input_size'],
         in_featuremap_size=(6, 8),
@@ -129,8 +129,8 @@ val_pipeline = [
 
 # data loaders
 train_dataloader = dict(
-    batch_size=128,
-    num_workers=10,
+    batch_size=128 * 8,
+    num_workers=40,
     persistent_workers=True,
     sampler=dict(type='DefaultSampler', shuffle=True),
     dataset=dict(
@@ -143,7 +143,7 @@ train_dataloader = dict(
     ))
 val_dataloader = dict(
     batch_size=64,
-    num_workers=4,
+    num_workers=10,
     persistent_workers=True,
     drop_last=False,
     sampler=dict(type='DefaultSampler', shuffle=False, round_up=False),
