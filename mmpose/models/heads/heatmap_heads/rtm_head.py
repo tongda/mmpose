@@ -171,7 +171,7 @@ class RTMHead(BaseHead):
             self.decoder_x = GAU(
                 self.out_channels,
                 hidden_dims,
-                W,
+                hidden_dims,
                 s=s,
                 use_dropout=use_dropout,
                 self_attn=not cross_attn,
@@ -180,7 +180,7 @@ class RTMHead(BaseHead):
             self.decoder_y = GAU(
                 self.out_channels,
                 hidden_dims,
-                H,
+                hidden_dims,
                 s=s,
                 use_dropout=use_dropout,
                 self_attn=not cross_attn,
