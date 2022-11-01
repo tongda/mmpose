@@ -220,7 +220,7 @@ class GAU(nn.Module):
                 v = torch.cat((v_shift, v_pass), dim=-1)
             k = self.k_fc(k)
             v = self.v_fc(v)
-            # q = self.rope(q, 1)
+            q = self.rope(q, 1)
             k = self.rope(k, 1)
 
         # qk = torch.einsum('bnd,bmd->bnm', q, k)

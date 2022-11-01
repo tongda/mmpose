@@ -27,12 +27,12 @@ class SE(nn.Module):
         # self.fc1 = nn.Linear(dims, dims)
         # self.fc_out = nn.Linear(dims, dims)
         self.fc1 = GAU(num_token, in_channels, in_channels)
-        self.fc_out = GAU(num_token, in_channels, out_channels)
+        # self.fc_out = GAU(num_token, in_channels, out_channels)
 
     def forward(self, x):
         w = self.fc1(x).sigmoid()
         x = x * w
-        x = self.fc_out(x)
+        # x = self.fc_out(x)
         return x
 
 
@@ -58,10 +58,11 @@ class RTMHead(BaseHead):
         use_se: bool = True,
         num_enc: int = 1,
         cross_attn: bool = False,
+        refine: str = None,
         input_transform: str = 'select',
         input_index: Union[int, Sequence[int]] = -1,
         align_corners: bool = False,
-        loss: ConfigType = dict(type='RLELoss', use_target_weight=True),
+        loss: ConfigType = dict(type='KLDiscretLoss', use_target_weight=True),
         decoder: OptConfigType = None,
         init_cfg: OptConfigType = None,
     ):
@@ -88,6 +89,7 @@ class RTMHead(BaseHead):
         self.num_enc = num_enc
         self.use_decoder = use_decoder
         self.cross_attn = cross_attn
+        self.refine = refine
 
         self.loss_module = MODELS.build(loss)
         if decoder is not None:
@@ -148,7 +150,7 @@ class RTMHead(BaseHead):
             self.mlp_x = GAU(
                 self.out_channels,
                 hidden_dims,
-                W,
+                hidden_dims if self.use_decoder else W,
                 s=s,
                 use_dropout=use_dropout,
                 attn=attn,
@@ -156,7 +158,7 @@ class RTMHead(BaseHead):
             self.mlp_y = GAU(
                 self.out_channels,
                 hidden_dims,
-                H,
+                hidden_dims if self.use_decoder else H,
                 s=s,
                 use_dropout=use_dropout,
                 attn=attn,
@@ -178,6 +180,29 @@ class RTMHead(BaseHead):
             self.decoder_y = GAU(
                 self.out_channels,
                 hidden_dims,
+                H,
+                s=s,
+                use_dropout=use_dropout,
+                self_attn=not cross_attn,
+                attn=attn,
+                shift=shift)
+
+        if refine == 'mlp':
+            self.refine_x = nn.Linear(W, W)
+            self.refine_y = nn.Linear(H, H)
+        elif refine == 'gau':
+            self.refine_x = GAU(
+                self.out_channels,
+                W,
+                W,
+                s=s,
+                use_dropout=use_dropout,
+                self_attn=not cross_attn,
+                attn=attn,
+                shift=shift)
+            self.refine_y = GAU(
+                self.out_channels,
+                H,
                 H,
                 s=s,
                 use_dropout=use_dropout,
@@ -225,6 +250,10 @@ class RTMHead(BaseHead):
 
             pred_x = torch.bmm(pred_x, coord_x_token.permute(0, 2, 1))
             pred_y = torch.bmm(pred_y, coord_y_token.permute(0, 2, 1))
+
+        if self.refine is not None:
+            pred_x = self.refine_x(pred_x)
+            pred_y = self.refine_y(pred_y)
 
         return pred_x, pred_y
 
