@@ -1,7 +1,7 @@
 _base_ = ['../../_base_/default_runtime.py']
 
 # runtime
-max_epochs = 210
+max_epochs = 420
 base_lr = 4e-3
 
 train_cfg = dict(max_epochs=max_epochs, val_interval=10)
@@ -84,7 +84,7 @@ model = dict(
         use_se=True,
         num_enc=1,
         cross_attn=True,
-        refine=None,
+        refine='mlp',
         loss=dict(
             type='KLDiscretLoss',
             use_target_weight=True,

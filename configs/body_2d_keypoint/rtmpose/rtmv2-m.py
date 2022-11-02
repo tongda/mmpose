@@ -68,7 +68,7 @@ model = dict(
             checkpoint='/mnt/petrelfs/jiangtao/pretrained_models/'
             'cspnext-m_coco_256x192.pth')),
     head=dict(
-        type='RTMHead',
+        type='RTMHeadv2',
         in_channels=768,
         out_channels=17,
         input_size=codec['input_size'],

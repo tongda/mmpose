@@ -256,7 +256,7 @@ class GAU(nn.Module):
         return x
 
 
-class GAUAlhpa(nn.Module):
+class GAUAlpha(nn.Module):
 
     def __init__(self,
                  max_seq_length,
@@ -272,7 +272,7 @@ class GAUAlhpa(nn.Module):
                  shift=False,
                  coord_dims=512):
 
-        super(GAUAlhpa, self).__init__()
+        super(GAUAlpha, self).__init__()
         self.s = s
         self.max_seq_length = max_seq_length
         self.attn = attn
@@ -391,6 +391,8 @@ class GAUAlhpa(nn.Module):
             x = inputs
         else:
             x, k, v = inputs
+            if self.use_shortcut:
+                v_shortcut = v
 
         # seq_length = x.shape[1]
         if self.use_shortcut:
@@ -471,8 +473,12 @@ class GAUAlhpa(nn.Module):
             # kernel B, 17, 512
             # v  B, 512, e
             # u  B, 17, e
-            y = v * torch.bmm(kernel.permuet(0, 2, 1), u)  # B, 512, e
+            y = v * torch.bmm(kernel.permute(0, 2, 1), u)  # B, 512, e
             y = self.o2(y)
+
+            if self.use_shortcut:
+                y += v_shortcut
+
             return x, y
         return x
 
