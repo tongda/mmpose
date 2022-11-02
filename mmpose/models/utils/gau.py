@@ -256,7 +256,7 @@ class GAU(nn.Module):
         return x
 
 
-class GAUAlpha(nn.Module):
+class GAUAlhpa(nn.Module):
 
     def __init__(self,
                  max_seq_length,
@@ -266,21 +266,29 @@ class GAUAlpha(nn.Module):
                  s=128,
                  eps=1e-5,
                  use_dropout=False,
-                 softmax_att=True,
+                 attn='relu2',
                  kpt_structure=False,
-                 self_attn=True):
+                 self_attn=True,
+                 shift=False,
+                 coord_dims=512):
 
-        super(GAUAlpha, self).__init__()
+        super(GAUAlhpa, self).__init__()
         self.s = s
         self.max_seq_length = max_seq_length
-        self.softmax_att = softmax_att
+        self.attn = attn
+        self.shift = shift
 
         self.e = int(hidden_size * expansion_factor)
-        self.w = nn.Parameter(
-            torch.rand([2 * max_seq_length - 1], dtype=torch.float))
+        if self_attn:
+            self.w = nn.Parameter(
+                torch.rand([2 * max_seq_length - 1], dtype=torch.float))
+        else:
+            self.w = nn.Parameter(
+                torch.rand([2 * coord_dims - 1], dtype=torch.float))
         # self.a = nn.Parameter(torch.rand([1, self.s], dtype=torch.float))
         # self.b = nn.Parameter(torch.rand([1, self.s], dtype=torch.float))
         self.o = nn.Linear(self.e, output_size)
+
         if self_attn:
             self.uv = nn.Linear(hidden_size, 2 * self.e + self.s)
             self.gamma = nn.Parameter(torch.rand((2, self.s)))
@@ -289,17 +297,33 @@ class GAUAlpha(nn.Module):
             self.uv = nn.Linear(hidden_size, self.e + self.s)
             self.k_fc = nn.Linear(hidden_size, self.s)
             self.v_fc = nn.Linear(hidden_size, self.e)
-        self.ln = nn.LayerNorm(hidden_size, eps=eps)
+            self.o2 = nn.Linear(self.e, output_size)
+
+        # self.ln = nn.LayerNorm(hidden_size, eps=eps)
+        self.ln = ScaleNorm(hidden_size, eps=eps)
         nn.init.xavier_uniform_(self.uv.weight)
+
         self.act_fn = nn.SiLU(True)
+
         self.use_shortcut = hidden_size == output_size
-        if softmax_att:
+
+        if attn == 'softmax':
             self.log_n = math.log(max_seq_length)
+        elif attn == 'laplacian':
+            self.mu = math.sqrt(0.5)
+            self.std = math.sqrt(0.25 * math.pi)
+        elif attn == 'starrelu':
+            self.star_relu = StarReLU()
+
         self.sqrt_s = math.sqrt(s)
+
         self.use_dropout = use_dropout
+
         if use_dropout:
-            self.dropout = nn.Dropout(0.2)
+            self.dropout = nn.Dropout(0.3)
+
         self.kpt_structure = kpt_structure
+
         self.self_attn = self_attn
 
     def rope(self, x, dim):
@@ -317,7 +341,7 @@ class GAUAlpha(nn.Module):
         for i in spatial_shape:
             total_len *= i
 
-        if self.kpt_structure:
+        if self.kpt_structure and spatial_shape[0] == 17:
             position = torch.tensor(
                 [0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8],
                 dtype=torch.float,
@@ -373,21 +397,40 @@ class GAUAlpha(nn.Module):
             shortcut = x
 
         x = self.ln(x)
+
+        if self.shift:
+            x_shift, x_pass = x.chunk(2, dim=-1)
+            if self.max_seq_length != 17:
+                x_shift = F.pad(x_shift, (0, 0, 1, -1), value=0.)
+            else:
+                shift_idx = [
+                    0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 5, 6, 11, 12, 13, 14
+                ]
+                x_shift = x_shift[:, shift_idx, :]
+            x = torch.cat((x_shift, x_pass), dim=-1)
+
         uv = self.uv(x)
         if self.self_attn:
             u, v, base = torch.split(
                 self.act_fn(uv), [self.e, self.e, self.s], dim=-1)
-            # print(base.shape, self.gamma.shape)
+
             # base1 = torch.einsum('...r, hr->...hr', base, self.gamma)
-            base = base.unsqueeze(2) * self.gamma[None, None, :]
-            # print(torch.sum(base1-base2))
-            base = base + self.beta
+            base = base.unsqueeze(2) * self.gamma[None, None, :] + self.beta
 
             base = self.rope(base, dim=1)
             q, k = torch.unbind(base, dim=-2)
 
         else:
             u, q = torch.split(self.act_fn(uv), [self.e, self.s], dim=-1)
+
+            if self.shift:
+                k_shift, k_pass = k.chunk(2, dim=-1)
+                k_shift = F.pad(k_shift, (0, 0, 1, -1), value=0.)
+                k = torch.cat((k_shift, k_pass), dim=-1)
+
+                v_shift, v_pass = v.chunk(2, dim=-1)
+                v_shift = F.pad(v_shift, (0, 0, 1, -1), value=0.)
+                v = torch.cat((v_shift, v_pass), dim=-1)
             k = self.k_fc(k)
             v = self.v_fc(v)
             q = self.rope(q, 1)
@@ -395,27 +438,42 @@ class GAUAlpha(nn.Module):
 
         # qk = torch.einsum('bnd,bmd->bnm', q, k)
         qk = torch.bmm(q, k.permute(0, 2, 1))
+        # print('q', q.shape, 'k', k.shape, 'qk', qk.shape)
+        bias = self.rel_pos_bias(max(q.size(1),
+                                     k.size(1)))[:, :q.size(1), :k.size(1)]
+        # print('bias', bias.shape)
+        qk += bias
 
-        # bias = self.rel_pos_bias(
-        #     self.max_seq_length)[:, :seq_length, :seq_length]
-
-        if self.softmax_att:
+        if self.attn == 'softmax':
             kernel = F.softmax(
                 self.log_n * self.max_seq_length * qk / self.sqrt_s, dim=-1)
+        elif self.attn == 'laplacian':
+            kernel = (1 + torch.special.erf(
+                (qk - self.mu) / (self.std * math.sqrt(2)))) * 0.5 / self.s
+        elif self.attn == 'starrelu':
+            kernel = self.star_relu(qk / self.sqrt_s)
         else:
             kernel = torch.square(F.relu(qk / self.sqrt_s))
 
         if self.use_dropout:
             kernel = self.dropout(kernel)
-
+        # print(kernel.shape)
         # x = u * torch.einsum('bnm, bme->bne', kernel, v)
         x = u * torch.bmm(kernel, v)
-        # print(torch.sum(x-x2))
 
         x = self.o(x)
 
         if self.use_shortcut:
             x += shortcut
+
+        if self.self_attn is False:
+            # cross attn
+            # kernel B, 17, 512
+            # v  B, 512, e
+            # u  B, 17, e
+            y = v * torch.bmm(kernel.permuet(0, 2, 1), u)  # B, 512, e
+            y = self.o2(y)
+            return x, y
         return x
 
 

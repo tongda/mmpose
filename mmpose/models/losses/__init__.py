@@ -12,9 +12,10 @@ from .mse_loss import (BalancedMSELoss, CombinedTargetIOULoss,
                        CombinedTargetMSELoss, KeypointMSELoss,
                        KeypointOHKMMSELoss)
 from .multi_loss_factory import AELoss, HeatmapLoss, MultiLossFactory
-from .regression_loss import (QFL, BoneLoss, L1Loss, MPJPELoss, MSELoss,
-                              RLECLSLoss, RLELoss, SemiSupervisionLoss,
-                              SmoothL1Loss, SoftWingLoss, WingLoss)
+from .regression_loss import (QFL, BoneLoss, BoneSimilarityLoss, L1Loss,
+                              MPJPELoss, MSELoss, RLECLSLoss, RLELoss,
+                              SemiSupervisionLoss, SmoothL1Loss, SoftWingLoss,
+                              WingLoss)
 
 __all__ = [
     'KeypointMSELoss', 'KeypointOHKMMSELoss', 'CombinedTargetMSELoss',
@@ -25,5 +26,6 @@ __all__ = [
     'CombinedTargetIOULoss', 'BoundedIoULoss', 'CIoULoss', 'DIoULoss',
     'GIoULoss', 'IoULoss', 'bounded_iou_loss', 'iou_loss', 'BalancedMSELoss',
     'EMDLoss', 'JSLoss', 'UncertainCLSLoss', 'RLECLSLoss',
-    'DistanceWeightedKLLoss', 'QFL', 'SimCCBCELoss', 'SimCCBalancedBCELoss'
+    'DistanceWeightedKLLoss', 'QFL', 'SimCCBCELoss', 'SimCCBalancedBCELoss',
+    'BoneSimilarityLoss'
 ]

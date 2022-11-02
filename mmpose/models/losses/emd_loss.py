@@ -167,3 +167,57 @@ class EMDLoss(nn.Module):
         loss, _, _ = self.sinkhorn(p, q, wx, wy)
 
         return loss / B / K
+
+
+# @MODELS.register_module()
+# class SimOTALoss(nn.Module):
+
+#     def __init__(self, use_target_weight=True):
+#         super(SimOTALoss, self).__init__()
+
+#         self.use_target_weight = use_target_weight
+#         self.k = 13
+
+#     def forward(self, pred_simcc, target_coord, gt_simcc,
+# target_weight=None):
+#         # pred_simcc   B, K, Wx
+#         # sigma        B, K, Wx
+#         # target_coord B, K, 1
+#         # gt_simcc     B, K, Wx
+#         pred = pred_simcc.sigmoid()
+#         Wx = pred.size(-1)
+
+#         # step 1: cost matrix Wx x 2
+#         lin_x = torch.arange(Wx, device=pred.device).reshape(1, 1, -1)
+
+#         t2 = (target_coord+0.5).int().clamp(0, Wx-1)
+#         t1 = t2 - 1
+
+#         cost1 = (lin_x - t1).abs().unsqueeze(-1)  # B, K, Wx, 1
+#         cost2 = (lin_x - t2).abs().unsqueeze(-1)
+#         cost_matrix = torch.cat([cost1, cost2], dim=-1)  # B, K, Wx, 2
+
+#         # step 2: dynamic k
+#         topk_pred, _ = cost_matrix.topk(self.k, dim=2)
+#         dynamic_k = torch.clamp(topk_pred.sum(dim=2).int(), min=1)  # B, K, 2
+
+#     def matching(self, cost, num_gt, dynamic_k):
+#         # cost      (Wx, 2)
+#         # dynamic_k (2, )
+
+#         matching_matrix = torch.zeros_like(cost, dtype=torch.uint8)
+#         # matching
+#         for gt_idx in range(num_gt):
+#             _, pos_idx = torch.topk(
+#                 cost[:, gt_idx], k=dynamic_k[gt_idx],
+#                 largest=False
+#             )
+#             matching_matrix[:, gt_idx][pos_idx] = 1
+
+#         prior_match_gt_mask = matching_matrix.sum(1) > 1
+#         if prior_match_gt_mask.sum() > 0:
+#             cost_min, cost_argmin = torch.min(
+#                 cost[prior_match_gt_mask, :], dim=1
+#             )
+#             matching_matrix[prior_match_gt_mask, :] *= 0
+#             matching_matrix[prior_match_gt_mask, cost_argmin] = 1

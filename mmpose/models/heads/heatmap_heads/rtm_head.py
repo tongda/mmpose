@@ -14,7 +14,7 @@ from mmpose.registry import KEYPOINT_CODECS, MODELS
 from mmpose.utils.tensor_utils import to_numpy
 from mmpose.utils.typing import (ConfigType, InstanceList, OptConfigType,
                                  OptSampleList)
-from ...utils.gau import GAU
+from ...utils.gau import GAU, ScaleNorm
 from ..base_head import BaseHead
 
 OptIntSeq = Optional[Sequence[int]]
@@ -59,6 +59,7 @@ class RTMHead(BaseHead):
         num_enc: int = 1,
         cross_attn: bool = False,
         refine: str = None,
+        token_norm: bool = False,
         input_transform: str = 'select',
         input_index: Union[int, Sequence[int]] = -1,
         align_corners: bool = False,
@@ -90,6 +91,7 @@ class RTMHead(BaseHead):
         self.use_decoder = use_decoder
         self.cross_attn = cross_attn
         self.refine = refine
+        self.token_norm = token_norm
 
         self.loss_module = MODELS.build(loss)
         if decoder is not None:
@@ -183,6 +185,10 @@ class RTMHead(BaseHead):
                 attn=attn,
                 shift=shift)
 
+            if token_norm:
+                self.tn_x = ScaleNorm(hidden_dims)
+                self.tn_y = ScaleNorm(hidden_dims)
+
         if refine == 'mlp':
             self.refine_x = nn.Linear(W, W)
             self.refine_y = nn.Linear(H, H)
@@ -243,6 +249,10 @@ class RTMHead(BaseHead):
             else:
                 pred_x = self.decoder_x(pred_x)
                 pred_y = self.decoder_y(pred_y)
+
+            if self.token_norm:
+                pred_x = self.tn_x(pred_x)
+                pred_y = self.tn_y(pred_y)
 
             pred_x = torch.bmm(pred_x, coord_x_token.permute(0, 2, 1))
             pred_y = torch.bmm(pred_y, coord_y_token.permute(0, 2, 1))

@@ -10,6 +10,32 @@ from ..utils.realnvp import RealNVP
 
 
 @MODELS.register_module()
+class BoneSimilarityLoss(nn.Module):
+
+    def __init__(self, use_target_weight=False):
+        super(BoneSimilarityLoss, self).__init__()
+        self.use_target_weight = use_target_weight
+
+    def forward(self, pred, target, target_weight=None):
+        # pred B, 17, Wx
+        B, K, _ = pred.shape
+        pred_sim = torch.bmm(pred, pred.permute(0, 2, 1))  # B, 17, 17
+        gt_sim = torch.bmm(target, target.permute(0, 2, 1))
+        loss = F.mse_loss(pred_sim, gt_sim, reduction='none')
+        if self.use_target_weight:
+            assert target_weight is not None
+
+            for _ in range(loss.ndim - target_weight.ndim):
+                target_weight = target_weight.unsqueeze(-1)
+
+            loss *= target_weight
+
+        hardcase_mining, _ = loss.reshape(B, -1).topk(3, dim=-1)
+        loss = loss.sum() / B / K + hardcase_mining.sum() / B / 3
+        return loss
+
+
+@MODELS.register_module()
 class QFL(nn.Module):
 
     def __init__(self, beta=2.0, use_target_weight=False, size_average=True):

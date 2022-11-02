@@ -1,10 +1,11 @@
 _base_ = ['../../_base_/default_runtime.py']
 
-# runtime
-max_epochs = 210
+max_epochs = 420
 base_lr = 4e-3
 
-train_cfg = dict(max_epochs=max_epochs, val_interval=10)
+# runtime
+train_cfg = dict(max_epochs=420, val_interval=10)
+randomness = dict(seed=42)
 
 # optimizer
 optim_wrapper = dict(
@@ -41,7 +42,7 @@ codec = dict(
     input_size=(192, 256),
     sigma=(4.9, 5.66),
     simcc_split_ratio=2.0,
-    normalize=False,
+    normalize=True,
     use_dark=True)
 
 # model settings
@@ -53,23 +54,18 @@ model = dict(
         std=[58.395, 57.12, 57.375],
         bgr_to_rgb=True),
     backbone=dict(
-        _scope_='mmdet',
-        type='CSPNeXt',
-        arch='P5',
-        expand_ratio=0.5,
-        deepen_factor=0.67,
-        widen_factor=0.75,
-        out_indices=(4, ),
-        channel_attention=True,
-        act_cfg=dict(type='SiLU'),
+        type='MobileNetV2',
+        widen_factor=1.,
+        out_indices=(6, ),
         init_cfg=dict(
             type='Pretrained',
             prefix='backbone.',
-            checkpoint='/mnt/petrelfs/jiangtao/pretrained_models/'
-            'cspnext-m_coco_256x192.pth')),
+            checkpoint='https://download.openmmlab.com/mmpose/top_down/'
+            'mobilenetv2/mobilenetv2_coco_256x192-d1e58e7b_20200727.pth',
+        )),
     head=dict(
         type='RTMHead',
-        in_channels=768,
+        in_channels=320,
         out_channels=17,
         input_size=codec['input_size'],
         in_featuremap_size=(6, 8),
@@ -84,12 +80,9 @@ model = dict(
         use_se=True,
         num_enc=1,
         cross_attn=True,
-        refine=None,
-        loss=dict(
-            type='KLDiscretLoss',
-            use_target_weight=True,
-            beta=10.,
-            use_softmax=True),
+        refine='mlp',
+        token_norm=True,
+        loss=dict(type='KLDiscretLoss', use_target_weight=True),
         decoder=codec),
     test_cfg=dict(flip_test=True, ))
 
@@ -111,11 +104,9 @@ train_pipeline = [
     dict(type='GetBBoxCenterScale'),
     dict(type='RandomFlip', direction='horizontal'),
     dict(type='RandomHalfBody'),
-    dict(
-        type='RandomBBoxTransform',
-        scale_factor=[0.75, 1.25],
-        rotate_factor=60),
+    dict(type='RandomBBoxTransform'),
     dict(type='TopdownAffine', input_size=codec['input_size']),
+    # dict(type='Cutout', radius_factor=0.2),
     dict(
         type='GenerateTarget', target_type='keypoint_xy_label', encoder=codec),
     dict(type='PackPoseInputs')
@@ -129,7 +120,7 @@ val_pipeline = [
 
 # data loaders
 train_dataloader = dict(
-    batch_size=128,
+    batch_size=128 * 2,
     num_workers=10,
     persistent_workers=True,
     sampler=dict(type='DefaultSampler', shuffle=True),
