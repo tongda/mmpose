@@ -2,7 +2,7 @@ _base_ = ['../../_base_/default_runtime.py']
 
 # runtime
 max_epochs = 420
-base_lr = 4e-3
+base_lr = 5e-4
 
 train_cfg = dict(max_epochs=max_epochs, val_interval=10)
 randomness = dict(seed=42)
@@ -10,7 +10,8 @@ randomness = dict(seed=42)
 # optimizer
 optim_wrapper = dict(
     type='OptimWrapper',
-    optimizer=dict(type='AdamW', lr=base_lr, weight_decay=0.05),
+    optimizer=dict(
+        type='AdamW', lr=base_lr, betas=(0.9, 0.999), weight_decay=0.1),
     paramwise_cfg=dict(
         norm_decay_mult=0, bias_decay_mult=0, bypass_duplicate=True))
 
@@ -81,10 +82,12 @@ model = dict(
         shift=True,
         attn='relu2',
         use_dropout=False,
+        drop_path=0.2,
         use_decoder=True,
         use_se=True,
-        num_enc=1,
+        num_enc=6,
         cross_attn=True,
+        token_norm=False,
         refine='mlp',
         loss=dict(
             type='KLDiscretLoss',

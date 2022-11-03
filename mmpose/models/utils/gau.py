@@ -1,6 +1,7 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import math
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -54,6 +55,7 @@ class GAU(nn.Module):
                  s=128,
                  eps=1e-5,
                  use_dropout=False,
+                 drop_path=0.,
                  attn='relu2',
                  kpt_structure=False,
                  self_attn=True,
@@ -65,6 +67,7 @@ class GAU(nn.Module):
         self.max_seq_length = max_seq_length
         self.attn = attn
         self.shift = shift
+        self.drop_path = drop_path
 
         self.e = int(hidden_size * expansion_factor)
         if self_attn:
@@ -252,7 +255,10 @@ class GAU(nn.Module):
         x = self.o(x)
 
         if self.use_shortcut:
-            x += shortcut
+            if self.training and self.drop_path > np.random.rand():
+                x = shortcut
+            else:
+                x += shortcut
         return x
 
 
