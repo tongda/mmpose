@@ -192,29 +192,6 @@ class RTMHeadv3(BaseHead):
                 self.tn_x = ScaleNorm(hidden_dims)
                 self.tn_y = ScaleNorm(hidden_dims)
 
-        if refine == 'mlp':
-            self.refine_x = nn.Linear(W, W)
-            self.refine_y = nn.Linear(H, H)
-        elif refine == 'gau':
-            self.refine_x = GAU(
-                self.out_channels,
-                W,
-                W,
-                s=s,
-                use_dropout=use_dropout,
-                self_attn=True,
-                attn=attn,
-                shift=shift)
-            self.refine_y = GAU(
-                self.out_channels,
-                H,
-                H,
-                s=s,
-                use_dropout=use_dropout,
-                self_attn=True,
-                attn=attn,
-                shift=shift)
-
     def forward(self, feats: Tuple[Tensor]) -> Tuple[Tensor, Tensor]:
         """Forward the network. The input is multi scale feature maps and the
         output is the heatmap.
@@ -259,10 +236,6 @@ class RTMHeadv3(BaseHead):
 
             pred_x = torch.bmm(pred_x, coord_x_token.permute(0, 2, 1))
             pred_y = torch.bmm(pred_y, coord_y_token.permute(0, 2, 1))
-
-        if self.refine is not None:
-            pred_x = self.refine_x(pred_x)
-            pred_y = self.refine_y(pred_y)
 
         return pred_x, pred_y
 

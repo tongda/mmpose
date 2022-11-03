@@ -1,17 +1,18 @@
 _base_ = ['../../_base_/default_runtime.py']
 
 # runtime
-max_epochs = 420
+max_epochs = 210
 base_lr = 5e-4
 
 train_cfg = dict(max_epochs=max_epochs, val_interval=10)
 randomness = dict(seed=42)
+find_unused_parameters = True
 
 # optimizer
 optim_wrapper = dict(
     type='OptimWrapper',
     optimizer=dict(
-        type='AdamW', lr=base_lr, betas=(0.9, 0.999), weight_decay=0.1),
+        type='AdamW', lr=base_lr, betas=(0.9, 0.999), weight_decay=0.05),
     paramwise_cfg=dict(
         norm_decay_mult=0, bias_decay_mult=0, bypass_duplicate=True))
 
@@ -70,7 +71,7 @@ model = dict(
             checkpoint='/mnt/petrelfs/jiangtao/pretrained_models/'
             'cspnext-m_coco_256x192.pth')),
     head=dict(
-        type='RTMHeadv2',
+        type='RTMHeadv3',
         in_channels=768,
         out_channels=17,
         input_size=codec['input_size'],
@@ -88,7 +89,7 @@ model = dict(
         num_enc=6,
         cross_attn=True,
         token_norm=False,
-        refine='mlp',
+        refine=None,
         loss=dict(
             type='KLDiscretLoss',
             use_target_weight=True,
@@ -133,7 +134,7 @@ val_pipeline = [
 
 # data loaders
 train_dataloader = dict(
-    batch_size=128,
+    batch_size=128 * 2,
     num_workers=10,
     persistent_workers=True,
     sampler=dict(type='DefaultSampler', shuffle=True),
