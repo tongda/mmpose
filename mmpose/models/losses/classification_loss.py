@@ -386,22 +386,22 @@ class DFL(nn.Module):
         target = target.reshape(B, K, 1)
         pred = F.softmax(pred, dim=-1)
 
-        t2 = (target + 0.5).long().clamp(0, Wx - 1)
-        t1 = t2 - 1
+        t1 = target.long().clamp(0, Wx - 2)
+        t2 = t1 + 1
 
         w1 = t2 - target
         w2 = target - t1
 
-        pred = pred.shape(-1, Wx)
-        t1 = t1.reshape(-1, 1)
-        t2 = t2.reshape(-1, 1)
+        pred = pred.reshape(-1, Wx)
+        t1 = t1.reshape(-1)
+        t2 = t2.reshape(-1)
 
         loss1 = F.cross_entropy(pred, t1, reduction='none')
         loss2 = F.cross_entropy(pred, t2, reduction='none')
         loss = loss1 * w1 + loss2 * w2
 
         if target_weight is not None:
-            target_weight = target_weight.reshape(-1, 1)
+            target_weight = target_weight.reshape(-1)
             loss *= target_weight
 
         return loss.sum() / B / K

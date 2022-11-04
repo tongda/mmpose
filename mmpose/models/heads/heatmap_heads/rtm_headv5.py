@@ -347,9 +347,9 @@ class RTMHeadv5(BaseHead):
         keypoint_labels = torch.cat(
             [d.gt_instance_labels.keypoint_labels for d in batch_data_samples])
         keypoint_labels[:, :, 0] *= (
-            self.input_size[0] * self.simcc_split_ratio - 1)
+            self.input_size[0] * self.simcc_split_ratio - 2)
         keypoint_labels[:, :, 1] *= (
-            self.input_size[1] * self.simcc_split_ratio - 1)
+            self.input_size[1] * self.simcc_split_ratio - 2)
 
         keypoint_weights = torch.cat(
             [

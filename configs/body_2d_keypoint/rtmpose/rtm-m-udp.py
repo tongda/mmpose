@@ -37,20 +37,12 @@ auto_scale_lr = dict(base_batch_size=1024)
 
 # codec settings
 codec = dict(
-    type='SimCCRLELabel',
-    input_size=(192, 256),
-    sigma=(4.9, 5.66),
-    simcc_split_ratio=2.0,
-    normalize=False,
-    use_dark=True)
-
-decoder = dict(
     type='SimCCLabel',
     input_size=(192, 256),
     sigma=(4.9, 5.66),
     simcc_split_ratio=2.0,
     normalize=False,
-    use_dark=False)
+    use_dark=True)
 
 # model settings
 model = dict(
@@ -76,7 +68,7 @@ model = dict(
             checkpoint='/mnt/petrelfs/jiangtao/pretrained_models/'
             'cspnext-m_coco_256x192.pth')),
     head=dict(
-        type='RTMHeadv5',
+        type='RTMHead',
         in_channels=768,
         out_channels=17,
         input_size=codec['input_size'],
@@ -93,8 +85,12 @@ model = dict(
         num_enc=1,
         cross_attn=True,
         refine=None,
-        loss=dict(type='DFL', use_target_weight=True),
-        decoder=decoder),
+        loss=dict(
+            type='KLDiscretLoss',
+            use_target_weight=True,
+            beta=10.,
+            use_softmax=True),
+        decoder=codec),
     test_cfg=dict(flip_test=True, ))
 
 # base dataset settings
@@ -119,17 +115,15 @@ train_pipeline = [
         type='RandomBBoxTransform',
         scale_factor=[0.75, 1.25],
         rotate_factor=60),
-    dict(type='TopdownAffine', input_size=codec['input_size']),
+    dict(type='TopdownAffine', input_size=codec['input_size'], use_udp=True),
     dict(
-        type='GenerateTarget',
-        target_type='keypoint_xy_label+keypoint_label',
-        encoder=codec),
+        type='GenerateTarget', target_type='keypoint_xy_label', encoder=codec),
     dict(type='PackPoseInputs')
 ]
 val_pipeline = [
     dict(type='LoadImage', file_client_args=file_client_args),
     dict(type='GetBBoxCenterScale'),
-    dict(type='TopdownAffine', input_size=codec['input_size']),
+    dict(type='TopdownAffine', input_size=codec['input_size'], use_udp=True),
     dict(type='PackPoseInputs')
 ]
 
