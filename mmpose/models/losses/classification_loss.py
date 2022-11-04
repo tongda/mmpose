@@ -395,6 +395,8 @@ class DFL(nn.Module):
         pred = pred.reshape(-1, Wx)
         t1 = t1.reshape(-1)
         t2 = t2.reshape(-1)
+        w1 = w1.reshape(-1)
+        w2 = w2.reshape(-1)
 
         loss1 = F.cross_entropy(pred, t1, reduction='none')
         loss2 = F.cross_entropy(pred, t2, reduction='none')
