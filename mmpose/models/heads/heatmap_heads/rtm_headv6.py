@@ -117,8 +117,8 @@ class RTMHeadv6(BaseHead):
 
             if use_hilbert_flatten:
                 t_hilbert_mapping = []
-                for x, y in gilbert2d(in_fs[0], in_fs[1]):
-                    t_hilbert_mapping.append(x * in_fs[1] + y)
+                for x, y in gilbert2d(in_fs[1], in_fs[0]):
+                    t_hilbert_mapping.append(x * in_fs[0] + y)
                 hilbert_mapping.append(t_hilbert_mapping)
 
             t_mlp = nn.Linear(flatten_dims, hidden_dims)

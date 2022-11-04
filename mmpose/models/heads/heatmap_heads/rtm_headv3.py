@@ -120,9 +120,9 @@ class RTMHeadv3(BaseHead):
 
         if use_hilbert_flatten:
             hilbert_mapping = []
-            for x, y in gilbert2d(in_featuremap_size[0],
-                                  in_featuremap_size[1]):
-                hilbert_mapping.append(x * in_featuremap_size[1] + y)
+            for x, y in gilbert2d(in_featuremap_size[1],
+                                  in_featuremap_size[0]):
+                hilbert_mapping.append(x * in_featuremap_size[0] + y)
             self.hilbert_mapping = hilbert_mapping
 
         W = int(self.input_size[0] * self.simcc_split_ratio)
