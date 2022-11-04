@@ -68,14 +68,14 @@ model = dict(
         )),
     head=dict(
         type='RTMHeadv6',
-        in_channels=(
+        in_channels=[
             96,
             160,
             320,
-        ),
+        ],
         out_channels=17,
         input_size=codec['input_size'],
-        in_featuremap_size=[(24, 32), (12, 16), (6, 8)],
+        in_featuremap_size=[(12, 16), (6, 8), (6, 8)],
         simcc_split_ratio=codec['simcc_split_ratio'],
         use_hilbert_flatten=True,
         hidden_dims=256,
@@ -132,7 +132,7 @@ val_pipeline = [
 
 # data loaders
 train_dataloader = dict(
-    batch_size=128,
+    batch_size=128 * 2,
     num_workers=10,
     persistent_workers=True,
     sampler=dict(type='DefaultSampler', shuffle=True),
