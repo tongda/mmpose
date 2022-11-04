@@ -106,13 +106,18 @@ class EfficientRep(BaseBackbone):
     hardware(e.g. GPU).
     """
 
-    def __init__(
-        self,
-        in_channels=3,
-        depth_mul=0.33,
-        width_mul=0.25,
-    ):
-        super().__init__()
+    def __init__(self,
+                 in_channels=3,
+                 depth_mul=0.33,
+                 width_mul=0.25,
+                 init_cfg=[
+                     dict(type='Kaiming', layer=['Conv2d']),
+                     dict(
+                         type='Constant',
+                         val=1,
+                         layer=['_BatchNorm', 'GroupNorm'])
+                 ]):
+        super().__init__(init_cfg=init_cfg)
 
         num_repeat_neck = [12, 12, 12, 12]
         channels_list_neck = [256, 128, 128, 256, 256, 512]
