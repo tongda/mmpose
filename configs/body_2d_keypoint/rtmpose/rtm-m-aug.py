@@ -1,7 +1,7 @@
 _base_ = ['../../_base_/default_runtime.py']
 
 # runtime
-max_epochs = 420
+max_epochs = 210
 base_lr = 4e-3
 
 train_cfg = dict(max_epochs=max_epochs, val_interval=10)
@@ -117,6 +117,14 @@ train_pipeline = [
         rotate_factor=60),
     dict(type='TopdownAffine', input_size=codec['input_size']),
     dict(
+        type='Albumentation',
+        transforms=[
+            dict(type='Blur', p=0.01),
+            dict(type='MedianBlur', p=0.01),
+            dict(type='ToGray', p=0.01),
+            dict(type='CLAHE', p=0.01)
+        ]),
+    dict(
         type='GenerateTarget', target_type='keypoint_xy_label', encoder=codec),
     dict(type='PackPoseInputs')
 ]
@@ -129,7 +137,7 @@ val_pipeline = [
 
 # data loaders
 train_dataloader = dict(
-    batch_size=128,
+    batch_size=128 * 2,
     num_workers=10,
     persistent_workers=True,
     sampler=dict(type='DefaultSampler', shuffle=True),

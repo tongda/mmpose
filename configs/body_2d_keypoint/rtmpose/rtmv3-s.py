@@ -1,15 +1,18 @@
 _base_ = ['../../_base_/default_runtime.py']
 
 # runtime
-max_epochs = 420
-base_lr = 4e-3
+max_epochs = 210
+base_lr = 1e-4
 
 train_cfg = dict(max_epochs=max_epochs, val_interval=10)
+randomness = dict(seed=42)
+find_unused_parameters = True
 
 # optimizer
 optim_wrapper = dict(
     type='OptimWrapper',
-    optimizer=dict(type='AdamW', lr=base_lr, weight_decay=0.05),
+    optimizer=dict(
+        type='AdamW', lr=base_lr, betas=(0.9, 0.999), weight_decay=0.05),
     paramwise_cfg=dict(
         norm_decay_mult=0, bias_decay_mult=0, bypass_duplicate=True))
 
@@ -57,8 +60,8 @@ model = dict(
         type='CSPNeXt',
         arch='P5',
         expand_ratio=0.5,
-        deepen_factor=0.67,
-        widen_factor=0.75,
+        deepen_factor=0.33,
+        widen_factor=0.5,
         out_indices=(4, ),
         channel_attention=True,
         act_cfg=dict(type='SiLU'),
@@ -68,8 +71,8 @@ model = dict(
             checkpoint='/mnt/petrelfs/jiangtao/pretrained_models/'
             'cspnext-m_coco_256x192.pth')),
     head=dict(
-        type='RTMHead',
-        in_channels=768,
+        type='RTMHeadv3',
+        in_channels=512,
         out_channels=17,
         input_size=codec['input_size'],
         in_featuremap_size=(6, 8),
@@ -80,10 +83,12 @@ model = dict(
         shift=True,
         attn='relu2',
         use_dropout=False,
+        drop_path=0.2,
         use_decoder=True,
         use_se=True,
-        num_enc=1,
+        num_enc=6,
         cross_attn=True,
+        token_norm=False,
         refine=None,
         loss=dict(
             type='KLDiscretLoss',
@@ -129,7 +134,7 @@ val_pipeline = [
 
 # data loaders
 train_dataloader = dict(
-    batch_size=128,
+    batch_size=128 * 2,
     num_workers=10,
     persistent_workers=True,
     sampler=dict(type='DefaultSampler', shuffle=True),

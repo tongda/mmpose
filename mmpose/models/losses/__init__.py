@@ -1,5 +1,5 @@
 # Copyright (c) OpenMMLab. All rights reserved.
-from .classification_loss import (BCELoss, DistanceWeightedKLLoss,
+from .classification_loss import (DFL, BCELoss, DistanceWeightedKLLoss,
                                   JSDiscretLoss, JSLoss, KLDiscretLoss,
                                   SimCCBalancedBCELoss, SimCCBCELoss,
                                   UncertainCLSLoss)
@@ -27,5 +27,5 @@ __all__ = [
     'GIoULoss', 'IoULoss', 'bounded_iou_loss', 'iou_loss', 'BalancedMSELoss',
     'EMDLoss', 'JSLoss', 'UncertainCLSLoss', 'RLECLSLoss',
     'DistanceWeightedKLLoss', 'QFL', 'SimCCBCELoss', 'SimCCBalancedBCELoss',
-    'BoneSimilarityLoss'
+    'BoneSimilarityLoss', 'DFL'
 ]

@@ -112,7 +112,7 @@ class JSLoss(nn.Module):
     """
 
     def __init__(self, use_target_weight=True, beta=1.0, use_softmax=False):
-        super(KLDiscretLoss, self).__init__()
+        super(JSLoss, self).__init__()
 
         self.use_target_weight = use_target_weight
         self.beta = beta
@@ -353,6 +353,58 @@ class KLDiscretLoss(nn.Module):
                 self.criterion(coord_y_pred, coord_y_gt).mul(weight).sum())
 
         return loss / num_joints
+
+
+@MODELS.register_module()
+class DFL(nn.Module):
+    """Discrete KL Divergence loss for SimCC with Gaussian Label Smoothing.
+
+    Modified from `the official implementation
+    <https://github.com/leeyegy/SimCC>`_.
+
+    Args:
+        use_target_weight (bool): Option to use weighted loss.
+            Different joint types may have different target weights.
+    """
+
+    def __init__(self, use_target_weight=True):
+        super(DFL, self).__init__()
+
+        self.use_target_weight = use_target_weight
+
+    def forward(self, pred, target, target_weight=None):
+        """Forward function.
+
+        Args:
+            pred_simcc (Tuple[Tensor, Tensor]): _description_
+            gt_simcc (Tuple[Tensor, Tensor]): _description_
+            target_weight (Tensor): _description_
+        """
+        # pred B, K, Wx
+        # target B, K, 1
+        B, K, Wx = pred.shape
+        target = target.reshape(B, K, 1)
+        pred = F.softmax(pred, dim=-1)
+
+        t2 = (target + 0.5).long().clamp(0, Wx - 1)
+        t1 = t2 - 1
+
+        w1 = t2 - target
+        w2 = target - t1
+
+        pred = pred.shape(-1, Wx)
+        t1 = t1.reshape(-1, 1)
+        t2 = t2.reshape(-1, 1)
+
+        loss1 = F.cross_entropy(pred, t1, reduction='none')
+        loss2 = F.cross_entropy(pred, t2, reduction='none')
+        loss = loss1 * w1 + loss2 * w2
+
+        if target_weight is not None:
+            target_weight = target_weight.reshape(-1, 1)
+            loss *= target_weight
+
+        return loss.sum() / B / K
 
 
 @MODELS.register_module()

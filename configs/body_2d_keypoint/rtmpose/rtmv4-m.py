@@ -1,7 +1,7 @@
 _base_ = ['../../_base_/default_runtime.py']
 
 # runtime
-max_epochs = 420
+max_epochs = 210
 base_lr = 4e-3
 
 train_cfg = dict(max_epochs=max_epochs, val_interval=10)
@@ -68,7 +68,7 @@ model = dict(
             checkpoint='/mnt/petrelfs/jiangtao/pretrained_models/'
             'cspnext-m_coco_256x192.pth')),
     head=dict(
-        type='RTMHead',
+        type='RTMHeadv4',
         in_channels=768,
         out_channels=17,
         input_size=codec['input_size'],
@@ -129,7 +129,7 @@ val_pipeline = [
 
 # data loaders
 train_dataloader = dict(
-    batch_size=128,
+    batch_size=128 * 2,
     num_workers=10,
     persistent_workers=True,
     sampler=dict(type='DefaultSampler', shuffle=True),

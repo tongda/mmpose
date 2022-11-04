@@ -1,7 +1,7 @@
 _base_ = ['../../_base_/default_runtime.py']
 
 # runtime
-max_epochs = 420
+max_epochs = 210
 base_lr = 4e-3
 
 train_cfg = dict(max_epochs=max_epochs, val_interval=10)
@@ -86,10 +86,7 @@ model = dict(
         cross_attn=True,
         refine=None,
         loss=dict(
-            type='KLDiscretLoss',
-            use_target_weight=True,
-            beta=10.,
-            use_softmax=True),
+            type='JSLoss', use_target_weight=True, beta=10., use_softmax=True),
         decoder=codec),
     test_cfg=dict(flip_test=True, ))
 
@@ -129,7 +126,7 @@ val_pipeline = [
 
 # data loaders
 train_dataloader = dict(
-    batch_size=128,
+    batch_size=128 * 2,
     num_workers=10,
     persistent_workers=True,
     sampler=dict(type='DefaultSampler', shuffle=True),

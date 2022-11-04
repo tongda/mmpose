@@ -80,6 +80,7 @@ model = dict(
         use_se=True,
         num_enc=1,
         cross_attn=True,
+        refine=None,
         loss=dict(type='SimCCBCELoss', use_target_weight=True),
         decoder=codec),
     test_cfg=dict(flip_test=True, ))
@@ -118,7 +119,7 @@ val_pipeline = [
 
 # data loaders
 train_dataloader = dict(
-    batch_size=128,
+    batch_size=128 * 2,
     num_workers=10,
     persistent_workers=True,
     sampler=dict(type='DefaultSampler', shuffle=True),

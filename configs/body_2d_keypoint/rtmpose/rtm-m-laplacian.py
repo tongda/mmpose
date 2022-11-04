@@ -1,7 +1,7 @@
 _base_ = ['../../_base_/default_runtime.py']
 
 # runtime
-max_epochs = 420
+max_epochs = 210
 base_lr = 4e-3
 
 train_cfg = dict(max_epochs=max_epochs, val_interval=10)
@@ -78,7 +78,7 @@ model = dict(
         hidden_dims=256,
         s=128,
         shift=True,
-        attn='relu2',
+        attn='laplacian',
         use_dropout=False,
         use_decoder=True,
         use_se=True,
@@ -129,7 +129,7 @@ val_pipeline = [
 
 # data loaders
 train_dataloader = dict(
-    batch_size=128,
+    batch_size=128 * 2,
     num_workers=10,
     persistent_workers=True,
     sampler=dict(type='DefaultSampler', shuffle=True),
