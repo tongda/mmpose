@@ -60,7 +60,8 @@ class GAU(nn.Module):
                  kpt_structure=False,
                  self_attn=True,
                  shift=False,
-                 coord_dims=512):
+                 coord_dims=512,
+                 act='silu'):
 
         super(GAU, self).__init__()
         self.s = s
@@ -93,7 +94,12 @@ class GAU(nn.Module):
         self.ln = ScaleNorm(hidden_size, eps=eps)
         nn.init.xavier_uniform_(self.uv.weight)
 
-        self.act_fn = nn.SiLU(True)
+        if act == 'silu':
+            self.act_fn = nn.SiLU(True)
+        elif act == 'starrelu':
+            self.act_fn = StarReLU(True)
+        else:
+            self.act_fn = nn.ReLU6(True)
 
         self.use_shortcut = hidden_size == output_size
 

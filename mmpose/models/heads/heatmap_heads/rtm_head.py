@@ -22,11 +22,11 @@ OptIntSeq = Optional[Sequence[int]]
 
 class SE(nn.Module):
 
-    def __init__(self, num_token, in_channels):
+    def __init__(self, num_token, in_channels, act='silu'):
         super().__init__()
         # self.fc1 = nn.Linear(dims, dims)
         # self.fc_out = nn.Linear(dims, dims)
-        self.fc1 = GAU(num_token, in_channels, in_channels)
+        self.fc1 = GAU(num_token, in_channels, in_channels, act=act)
         # self.fc_out = GAU(num_token, in_channels, out_channels)
 
     def forward(self, x):
@@ -58,6 +58,7 @@ class RTMHead(BaseHead):
         use_se: bool = True,
         num_enc: int = 1,
         cross_attn: bool = False,
+        act_fn: str = 'silu',
         refine: str = None,
         token_norm: bool = False,
         input_transform: str = 'select',
@@ -135,15 +136,20 @@ class RTMHead(BaseHead):
                 s=s,
                 use_dropout=use_dropout,
                 attn=attn,
-                shift=shift) for _ in range(self.num_enc)
+                shift=shift,
+                act=act_fn) for _ in range(self.num_enc)
         ]
         self.encoder = nn.Sequential(*encoder)
 
         if use_se:
             self.mlp_x = SE(
-                num_token=self.out_channels, in_channels=hidden_dims)
+                num_token=self.out_channels,
+                in_channels=hidden_dims,
+                act=act_fn)
             self.mlp_y = SE(
-                num_token=self.out_channels, in_channels=hidden_dims)
+                num_token=self.out_channels,
+                in_channels=hidden_dims,
+                act=act_fn)
         else:
             self.mlp_x = GAU(
                 self.out_channels,
@@ -152,7 +158,8 @@ class RTMHead(BaseHead):
                 s=s,
                 use_dropout=use_dropout,
                 attn=attn,
-                shift=shift)
+                shift=shift,
+                act=act_fn)
             self.mlp_y = GAU(
                 self.out_channels,
                 hidden_dims,
@@ -160,7 +167,8 @@ class RTMHead(BaseHead):
                 s=s,
                 use_dropout=use_dropout,
                 attn=attn,
-                shift=shift)
+                shift=shift,
+                act=act_fn)
 
         if use_decoder:
             self.coord_x_token = nn.Parameter(torch.randn((1, W, hidden_dims)))
@@ -174,7 +182,8 @@ class RTMHead(BaseHead):
                 use_dropout=use_dropout,
                 self_attn=not cross_attn,
                 attn=attn,
-                shift=shift)
+                shift=shift,
+                act=act_fn)
             self.decoder_y = GAU(
                 self.out_channels,
                 hidden_dims,
@@ -183,7 +192,8 @@ class RTMHead(BaseHead):
                 use_dropout=use_dropout,
                 self_attn=not cross_attn,
                 attn=attn,
-                shift=shift)
+                shift=shift,
+                act=act_fn)
 
             if token_norm:
                 self.tn_x = ScaleNorm(hidden_dims)
@@ -201,7 +211,8 @@ class RTMHead(BaseHead):
                 use_dropout=use_dropout,
                 self_attn=True,
                 attn=attn,
-                shift=shift)
+                shift=shift,
+                act=act_fn)
             self.refine_y = GAU(
                 self.out_channels,
                 H,
@@ -210,7 +221,8 @@ class RTMHead(BaseHead):
                 use_dropout=use_dropout,
                 self_attn=True,
                 attn=attn,
-                shift=shift)
+                shift=shift,
+                act=act_fn)
 
     def forward(self, feats: Tuple[Tensor]) -> Tuple[Tensor, Tensor]:
         """Forward the network. The input is multi scale feature maps and the
