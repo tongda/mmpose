@@ -51,9 +51,14 @@ model = dict(
 # base dataset settings
 dataset_type = 'CocoDataset'
 data_mode = 'topdown'
-data_root = 'data/coco/'
+data_root = '/mnt/lustre/share_data/openmmlab/datasets/detection/coco/'
 
-file_client_args = dict(backend='disk')
+file_client_args = dict(
+    backend='petrel',
+    path_mapping=dict({
+        f'{data_root}': 's3://openmmlab/datasets/detection/coco/',
+        f'{data_root}': 's3://openmmlab/datasets/detection/coco/'
+    }))
 
 # pipelines
 train_pipeline = [
@@ -76,7 +81,7 @@ test_pipeline = [
 
 # data loaders
 train_dataloader = dict(
-    batch_size=64,
+    batch_size=64 * 2,
     num_workers=2,
     persistent_workers=True,
     sampler=dict(type='DefaultSampler', shuffle=True),
@@ -108,7 +113,8 @@ val_dataloader = dict(
 test_dataloader = val_dataloader
 
 # hooks
-default_hooks = dict(checkpoint=dict(save_best='coco/AP', rule='greater'))
+default_hooks = dict(
+    checkpoint=dict(save_best='coco/AP', rule='greater', max_keep_ckpts=1))
 
 # evaluators
 val_evaluator = dict(

@@ -6,6 +6,7 @@ from mmcv.cnn import build_conv_layer
 from torch import Tensor, nn
 
 from mmpose.evaluation.functional import simcc_pck_accuracy
+from mmpose.models.utils.gilbert2d import gilbert2d
 from mmpose.models.utils.tta import flip_vectors
 from mmpose.registry import KEYPOINT_CODECS, MODELS
 from mmpose.utils.tensor_utils import to_numpy
@@ -192,6 +193,11 @@ class SimCCHead(BaseHead):
         # Define SimCC layers
         flatten_dims = self.heatmap_size[0] * self.heatmap_size[1]
 
+        hilbert_mapping = []
+        for x, y in gilbert2d(in_featuremap_size[1], in_featuremap_size[0]):
+            hilbert_mapping.append(x * in_featuremap_size[0] + y)
+        self.hilbert_mapping = hilbert_mapping
+
         W = int(self.input_size[0] * self.simcc_split_ratio)
         H = int(self.input_size[1] * self.simcc_split_ratio)
 
@@ -277,6 +283,7 @@ class SimCCHead(BaseHead):
 
         # flatten the output heatmap
         x = torch.flatten(feats, 2)
+        feats = feats[:, :, self.hilbert_mapping]
 
         if self.use_mlp:
             feat_x = self.mlp_x(x)
