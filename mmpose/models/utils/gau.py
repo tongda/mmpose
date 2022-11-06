@@ -61,7 +61,8 @@ class GAU(nn.Module):
                  self_attn=True,
                  shift=False,
                  coord_dims=512,
-                 act='silu'):
+                 act='silu',
+                 bias=False):
 
         super(GAU, self).__init__()
         self.s = s
@@ -79,16 +80,16 @@ class GAU(nn.Module):
                 torch.rand([2 * coord_dims - 1], dtype=torch.float))
         # self.a = nn.Parameter(torch.rand([1, self.s], dtype=torch.float))
         # self.b = nn.Parameter(torch.rand([1, self.s], dtype=torch.float))
-        self.o = nn.Linear(self.e, output_size)
+        self.o = nn.Linear(self.e, output_size, bias=bias)
 
         if self_attn:
-            self.uv = nn.Linear(hidden_size, 2 * self.e + self.s)
+            self.uv = nn.Linear(hidden_size, 2 * self.e + self.s, bias=bias)
             self.gamma = nn.Parameter(torch.rand((2, self.s)))
             self.beta = nn.Parameter(torch.rand((2, self.s)))
         else:
-            self.uv = nn.Linear(hidden_size, self.e + self.s)
-            self.k_fc = nn.Linear(hidden_size, self.s)
-            self.v_fc = nn.Linear(hidden_size, self.e)
+            self.uv = nn.Linear(hidden_size, self.e + self.s, bias=bias)
+            self.k_fc = nn.Linear(hidden_size, self.s, bias=bias)
+            self.v_fc = nn.Linear(hidden_size, self.e, bias=bias)
 
         # self.ln = nn.LayerNorm(hidden_size, eps=eps)
         self.ln = ScaleNorm(hidden_size, eps=eps)
