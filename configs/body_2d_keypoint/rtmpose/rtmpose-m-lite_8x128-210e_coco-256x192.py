@@ -25,7 +25,7 @@ optim_wrapper = dict(
 param_scheduler = [
     dict(
         type='LinearLR',
-        start_factor=1.0e-6,
+        start_factor=1.0e-5,
         by_epoch=False,
         begin=0,
         end=1000),
@@ -82,7 +82,7 @@ model = dict(
         input_size=codec['input_size'],
         in_featuremap_size=(6, 8),
         simcc_split_ratio=codec['simcc_split_ratio'],
-        channel_mixing='heavy',
+        channel_mixing='lite',
         use_hilbert_flatten=True,
         gau_cfg=dict(
             hidden_dims=256,

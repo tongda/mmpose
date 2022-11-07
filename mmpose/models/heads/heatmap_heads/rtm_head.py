@@ -28,7 +28,7 @@ class RTMHead(BaseHead):
         input_size: Tuple[int, int],
         in_featuremap_size: Tuple[int, int],
         simcc_split_ratio: float = 2.0,
-        channel_mixing: str = 'heavy',
+        channel_mixing: str = 'lite',
         use_hilbert_flatten: bool = False,
         gau_cfg: ConfigType = dict(
             hidden_dims=256,
@@ -87,7 +87,7 @@ class RTMHead(BaseHead):
         # Define SimCC layers
         flatten_dims = self.in_featuremap_size[0] * self.in_featuremap_size[1]
 
-        if channel_mixing == 'light':
+        if channel_mixing == 'lite':
             cfg = dict(
                 type='Conv2d',
                 in_channels=in_channels,
@@ -232,7 +232,7 @@ class RTMHead(BaseHead):
         """
         feats = self._transform_inputs(feats)
 
-        if self.channel_mixing == 'light':
+        if self.channel_mixing == 'lite':
             # B, C, HW
             feats = self.final_layer(feats)  # -> B, K, hidden
 
@@ -241,7 +241,7 @@ class RTMHead(BaseHead):
         if self.use_hilbert_flatten:
             feats = feats[:, :, self.hilbert_mapping]
 
-        if self.channel_mixing == 'heavy':
+        if self.channel_mixing == 'full':
             # B, C, HW
             feats = self.channel_token_proj(feats)  # -> B, C, hidden
             feats = feats.permute(0, 2, 1)  # -> B, hidden, C
