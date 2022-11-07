@@ -50,6 +50,7 @@ class RTMHeadv9(BaseHead):
             shift=True,
             dropout_rate=0.,
             act_fn='SiLU',
+            use_rel_bias=False,
         ),
         use_decoder: bool = False,
         use_se: bool = True,
@@ -108,7 +109,7 @@ class RTMHeadv9(BaseHead):
         #     padding=2,
         #     )
         # self.final_layer = build_conv_layer(cfg)
-        self.gap = nn.AdaptiveAvgPool2d(in_featuremap_size)
+        # self.gap = nn.AdaptiveAvgPool2d(in_featuremap_size)
 
         # Define SimCC layers
         flatten_dims = self.in_featuremap_size[0] * self.in_featuremap_size[1]
@@ -138,7 +139,7 @@ class RTMHeadv9(BaseHead):
             dropout_rate=self.dropout_rate,
             drop_path=self.drop_path,
             shift='time' if self.shift else None,
-            act_fn=self.act_fn,
+            act_fn=gau_cfg.act_fn,
             use_rel_bias=False)
         self.act = StarReLU(True)
         self.pixel_token_proj = PGAU(
@@ -149,7 +150,7 @@ class RTMHeadv9(BaseHead):
             dropout_rate=self.dropout_rate,
             drop_path=self.drop_path,
             shift=None,
-            act_fn=self.act_fn,
+            act_fn=gau_cfg.act_fn,
             use_rel_bias=False)
         self.mlp = nn.Linear(self.hidden_dims, self.hidden_dims, bias=False)
 
@@ -162,7 +163,8 @@ class RTMHeadv9(BaseHead):
                 dropout_rate=self.dropout_rate,
                 drop_path=self.drop_path,
                 shift='structure' if self.shift else None,
-                act_fn=self.act_fn) for _ in range(self.num_enc)
+                act_fn=gau_cfg.act_fn,
+                use_rel_bias=gau_cfg.use_rel_bias) for _ in range(self.num_enc)
         ]
         self.encoder = nn.Sequential(*encoder)
 
@@ -175,7 +177,8 @@ class RTMHeadv9(BaseHead):
                 dropout_rate=self.dropout_rate,
                 drop_path=0.,
                 shift='structure' if self.shift else None,
-                act_fn=self.act_fn)
+                act_fn=gau_cfg.act_fn,
+                use_rel_bias=gau_cfg.use_rel_bias)
             block_y = PGAU(
                 in_channels,
                 self.hidden_dims,
@@ -184,7 +187,8 @@ class RTMHeadv9(BaseHead):
                 dropout_rate=self.dropout_rate,
                 drop_path=0.,
                 shift='structure' if self.shift else None,
-                act_fn=self.act_fn)
+                act_fn=gau_cfg.act_fn,
+                use_rel_bias=gau_cfg.use_rel_bias)
             self.mlp_x = SE(block_x)
             self.mlp_y = SE(block_y)
         else:
@@ -196,7 +200,8 @@ class RTMHeadv9(BaseHead):
                 dropout_rate=self.dropout_rate,
                 drop_path=self.drop_path,
                 shift='structure' if self.shift else None,
-                act_fn=self.act_fn)
+                act_fn=gau_cfg.act_fn,
+                use_rel_bias=gau_cfg.use_rel_bias)
             self.mlp_y = PGAU(
                 in_channels,
                 self.hidden_dims,
@@ -205,7 +210,8 @@ class RTMHeadv9(BaseHead):
                 dropout_rate=self.dropout_rate,
                 drop_path=self.drop_path,
                 shift='structure' if self.shift else None,
-                act_fn=self.act_fn)
+                act_fn=gau_cfg.act_fn,
+                use_rel_bias=gau_cfg.use_rel_bias)
 
         if use_decoder:
             self.coord_x_token = nn.Parameter(
@@ -222,7 +228,8 @@ class RTMHeadv9(BaseHead):
                 drop_path=self.drop_path,
                 attn_type='cross-attn' if cross_attn else 'self-attn',
                 shift='structure' if self.shift else None,
-                act_fn=self.act_fn)
+                act_fn=gau_cfg.act_fn,
+                use_rel_bias=gau_cfg.use_rel_bias)
             self.decoder_y = PGAU(
                 self.out_channels,
                 self.hidden_dims,
@@ -232,7 +239,8 @@ class RTMHeadv9(BaseHead):
                 drop_path=self.drop_path,
                 attn_type='cross-attn' if cross_attn else 'self-attn',
                 shift='structure' if self.shift else None,
-                act_fn=self.act_fn)
+                act_fn=gau_cfg.act_fn,
+                use_rel_bias=gau_cfg.use_rel_bias)
 
     def forward(self, feats: Tuple[Tensor]) -> Tuple[Tensor, Tensor]:
         """Forward the network. The input is multi scale feature maps and the
@@ -246,7 +254,7 @@ class RTMHeadv9(BaseHead):
             pred_y (Tensor): 1d representation of y.
         """
         feats = self._transform_inputs(feats)
-        feats = self.gap(feats)
+        # feats = self.gap(feats)
 
         # flatten the output heatmap
         feats = torch.flatten(feats, 2)

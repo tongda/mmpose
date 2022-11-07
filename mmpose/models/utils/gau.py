@@ -73,7 +73,6 @@ class PGAU(nn.Module):
             attn_type='self-attn',
             shift=None,
             shift_idx=[0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 5, 6, 11, 12, 13, 14],
-            coord_dims=512,
             act_fn='SiLU',
             bias=False,
             use_rel_bias=True):
@@ -94,10 +93,8 @@ class PGAU(nn.Module):
                 self.w = nn.Parameter(
                     torch.rand([2 * num_token - 1], dtype=torch.float))
             else:
-                self.a = nn.Parameter(
-                    torch.rand([1, coord_dims], dtype=torch.float))
-                self.b = nn.Parameter(
-                    torch.rand([1, coord_dims], dtype=torch.float))
+                self.a = nn.Parameter(torch.rand([1, s], dtype=torch.float))
+                self.b = nn.Parameter(torch.rand([1, s], dtype=torch.float))
         self.o = nn.Linear(self.e, out_token_dims, bias=bias)
 
         if attn_type == 'self-attn':
@@ -122,8 +119,10 @@ class PGAU(nn.Module):
         if in_token_dims == out_token_dims:
             self.shortcut = True
             self.res_scale = Scale(in_token_dims)
+        else:
+            self.shortcut = False
 
-        self.layer_scale = Scale(in_token_dims)
+        self.layer_scale = Scale(out_token_dims)
 
         self.sqrt_s = math.sqrt(s)
 
@@ -167,15 +166,15 @@ class PGAU(nn.Module):
 
         return torch.cat([x1 * cos - x2 * sin, x2 * cos + x1 * sin], dim=-1)
 
-    def rel_pos_bias(self, seq_len):
-        if self.shift == 'structure':
+    def rel_pos_bias(self, seq_len, k_len=None):
+        if self.attn_type == 'self-attn':
             t = F.pad(self.w[:2 * seq_len - 1], [0, seq_len]).repeat(seq_len)
             t = t[..., :-seq_len].reshape(-1, seq_len, 3 * seq_len - 2)
             r = (2 * seq_len - 1) // 2
             t = t[..., r:-r]
         else:
             a = self.rope(self.a.repeat(seq_len, 1), dim=0)
-            b = self.rope(self.b.repeat(seq_len, 1), dim=0)
+            b = self.rope(self.b.repeat(k_len, 1), dim=0)
             t = torch.bmm(a, b.permute(0, 2, 1))
         return t
 
@@ -235,9 +234,11 @@ class PGAU(nn.Module):
         qk = torch.bmm(q, k.permute(0, 2, 1))
 
         if self.use_rel_bias:
-            bias = self.rel_pos_bias(max(q.size(1),
-                                         k.size(1)))[:, :q.size(1), :k.size(1)]
-            qk += bias
+            if self.attn_type == 'self-attn':
+                bias = self.rel_pos_bias(q.size(1))
+            else:
+                bias = self.rel_pos_bias(q.size(1), k.size(1))
+            qk += bias[:, :q.size(1), :k.size(1)]
 
         kernel = torch.square(F.relu(qk / self.sqrt_s))
 
@@ -251,8 +252,13 @@ class PGAU(nn.Module):
 
     def forward(self, x):
         if self.shortcut:
-            return self.res_scale(x) + \
-                self.layer_scale(self.drop_path(self._forward(x)))
+            if self.attn_type == 'cross-attn':
+                res_shortcut = x[0]
+                main_branch = self.drop_path(self._forward(x))[0]
+            else:
+                res_shortcut = x
+                main_branch = self.drop_path(self._forward(x))
+            return self.res_scale(res_shortcut) + self.layer_scale(main_branch)
         else:
             return self.layer_scale(self.drop_path(self._forward(x)))
 

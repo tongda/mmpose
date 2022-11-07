@@ -1,8 +1,8 @@
 _base_ = ['../../_base_/default_runtime.py']
 
 # runtime
-max_epochs = 210
-stage2_num_epochs = 30
+max_epochs = 420
+stage2_num_epochs = 40
 base_lr = 4e-3
 
 train_cfg = dict(max_epochs=max_epochs, val_interval=10)
@@ -10,9 +10,16 @@ train_cfg = dict(max_epochs=max_epochs, val_interval=10)
 # optimizer
 optim_wrapper = dict(
     type='OptimWrapper',
-    optimizer=dict(type='AdamW', lr=base_lr, weight_decay=0.05),
+    optimizer=dict(
+        type='AdamW', lr=base_lr, betas=(0.9, 0.999), weight_decay=0.1),
     paramwise_cfg=dict(
-        norm_decay_mult=0, bias_decay_mult=0, bypass_duplicate=True))
+        norm_decay_mult=0,
+        bias_decay_mult=0,
+        bypass_duplicate=True,
+        custom_keys={
+            'backbone': dict(lr_mult=1),
+            'head': dict(lr_mult=0.75)
+        }))
 
 # learning rate
 param_scheduler = [
@@ -63,11 +70,12 @@ model = dict(
         out_indices=(4, ),
         channel_attention=True,
         act_cfg=dict(type='ReLU'),
-        init_cfg=dict(
-            type='Pretrained',
-            prefix='backbone.',
-            checkpoint='/mnt/petrelfs/jiangtao/pretrained_models/'
-            'cspnext-m_coco_256x192.pth')),
+        # init_cfg=dict(
+        #     type='Pretrained',
+        #     prefix='backbone.',
+        #     checkpoint='/mnt/petrelfs/jiangtao/pretrained_models/'
+        #     'cspnext-m_coco_256x192.pth')
+    ),
     head=dict(
         type='RTMHeadv9',
         in_channels=512,
@@ -80,9 +88,10 @@ model = dict(
             hidden_dims=256,
             s=128,
             shift=True,
-            droput_rate=0.,
+            dropout_rate=0.,
             drop_path=0.15,
             act_fn='StarReLU',
+            use_rel_bias=False,
         ),
         use_decoder=True,
         use_se=True,
