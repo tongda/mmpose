@@ -7,6 +7,18 @@ import torch.nn.functional as F
 from mmcv.cnn.bricks import DropPath
 
 
+class SE(nn.Module):
+
+    def __init__(self, block):
+        super().__init__()
+        self.block = block
+
+    def forward(self, x):
+        w = self.block(x).sigmoid()
+        x = x * w
+        return x
+
+
 class Scale(nn.Module):
     """Scale vector by element multiplications."""
 
