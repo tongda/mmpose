@@ -1,10 +1,11 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 from itertools import product
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 
 import numpy as np
 
 from mmpose.codecs.utils import get_simcc_maximum
+from mmpose.codecs.utils.refinement import refine_simcc_dark_udp
 from mmpose.registry import KEYPOINT_CODECS
 from .base import BaseKeypointCodec
 
@@ -54,18 +55,23 @@ class SimCCLabel(BaseKeypointCodec):
     def __init__(self,
                  input_size: Tuple[int, int],
                  smoothing_type: str = 'gaussian',
-                 sigma: float = 6.0,
+                 sigma: Union[float, Tuple[float]] = 6.0,
                  simcc_split_ratio: float = 2.0,
                  label_smooth_weight: float = 0.0,
-                 normalize: bool = True) -> None:
+                 normalize: bool = True,
+                 use_dark: bool = False) -> None:
         super().__init__()
 
         self.input_size = input_size
         self.smoothing_type = smoothing_type
-        self.sigma = sigma
+        if isinstance(sigma, float):
+            self.sigma = np.array([sigma, sigma])
+        else:
+            self.sigma = np.array(sigma)
         self.simcc_split_ratio = simcc_split_ratio
         self.label_smooth_weight = label_smooth_weight
         self.normalize = normalize
+        self.use_dark = use_dark
 
         if self.smoothing_type not in {'gaussian', 'standard'}:
             raise ValueError(
@@ -148,12 +154,22 @@ class SimCCLabel(BaseKeypointCodec):
         simcc_x, simcc_y = encoded
         keypoints, scores = get_simcc_maximum(simcc_x, simcc_y)
 
-        keypoints /= self.simcc_split_ratio
-
         # Unsqueeze the instance dimension for single-instance results
-        if len(keypoints) == 2:
+        if len(keypoints.shape) == 2:
             keypoints = keypoints[None, :]
             scores = scores[None, :]
+
+        if self.use_dark:
+            x_blur = int((self.sigma[0] * 20 - 7) // 3)
+            y_blur = int((self.sigma[1] * 20 - 7) // 3)
+            x_blur -= int((x_blur % 2) == 0)
+            y_blur -= int((y_blur % 2) == 0)
+            keypoints[:, :, 0] = refine_simcc_dark_udp(keypoints[:, :, 0],
+                                                       simcc_x, x_blur)
+            keypoints[:, :, 1] = refine_simcc_dark_udp(keypoints[:, :, 1],
+                                                       simcc_y, y_blur)
+
+        keypoints /= self.simcc_split_ratio
 
         return keypoints, scores
 
