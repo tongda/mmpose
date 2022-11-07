@@ -2,6 +2,7 @@
 from typing import Optional, Sequence, Tuple, Union
 
 import torch
+from mmcv.cnn import build_conv_layer
 from torch import Tensor, nn
 
 from mmpose.evaluation.functional import simcc_pck_accuracy
@@ -27,6 +28,7 @@ class RTMHead(BaseHead):
         input_size: Tuple[int, int],
         in_featuremap_size: Tuple[int, int],
         simcc_split_ratio: float = 2.0,
+        channel_mixing: str = 'heavy',
         use_hilbert_flatten: bool = False,
         gau_cfg: ConfigType = dict(
             hidden_dims=256,
@@ -58,11 +60,12 @@ class RTMHead(BaseHead):
         self.out_channels = out_channels
         self.input_size = input_size
         self.in_featuremap_size = in_featuremap_size
-        gau_cfg.simcc_split_ratio = simcc_split_ratio
+        self.simcc_split_ratio = simcc_split_ratio
         self.align_corners = align_corners
         self.input_transform = input_transform
         self.input_index = input_index
 
+        self.channel_mixing = channel_mixing
         self.use_hilbert_flatten = use_hilbert_flatten
         self.num_self_attn = num_self_attn
         self.use_coord_token = use_coord_token
@@ -81,18 +84,41 @@ class RTMHead(BaseHead):
 
         in_channels = self._get_in_channels()
 
-        # cfg = dict(
-        #     type='Conv2d',
-        #     in_channels=in_channels,
-        #     out_channels=out_channels*4,
-        #     kernel_size=5,
-        #     padding=2,
-        #     )
-        # self.final_layer = build_conv_layer(cfg)
-        # self.gap = nn.AdaptiveAvgPool2d(in_featuremap_size)
-
         # Define SimCC layers
         flatten_dims = self.in_featuremap_size[0] * self.in_featuremap_size[1]
+
+        if channel_mixing == 'light':
+            cfg = dict(
+                type='Conv2d',
+                in_channels=in_channels,
+                out_channels=out_channels,
+                kernel_size=1)
+            self.final_layer = build_conv_layer(cfg)
+
+        else:
+            self.channel_token_proj = PGAU(
+                in_channels,
+                flatten_dims,
+                gau_cfg.hidden_dims,
+                s=flatten_dims // 2,
+                dropout_rate=gau_cfg.dropout_rate,
+                drop_path=gau_cfg.drop_path,
+                shift='time' if gau_cfg.shift else None,
+                act_fn=gau_cfg.act_fn,
+                use_rel_bias=False)
+            self.act = StarReLU(True)
+            self.pixel_token_proj = PGAU(
+                flatten_dims,
+                in_channels,
+                out_channels,
+                s=gau_cfg.s,
+                dropout_rate=gau_cfg.dropout_rate,
+                drop_path=gau_cfg.drop_path,
+                shift=None,
+                act_fn=gau_cfg.act_fn,
+                use_rel_bias=False)
+            self.mlp = nn.Linear(
+                gau_cfg.hidden_dims, gau_cfg.hidden_dims, bias=False)
 
         if use_hilbert_flatten:
             hilbert_mapping = []
@@ -104,38 +130,7 @@ class RTMHead(BaseHead):
         W = int(self.input_size[0] * gau_cfg.simcc_split_ratio)
         H = int(self.input_size[1] * gau_cfg.simcc_split_ratio)
 
-        # self.mlp = nn.Sequential(
-        #     ScaleNorm(flatten_dims),
-        #     nn.Linear(flatten_dims, hidden_dims, bias=False),
-        #     StarReLU(True),
-        #     nn.Conv1d(in_channels, out_channels, 1, bias=False),
-        #     nn.Linear(hidden_dims, hidden_dims, bias=False)
-        # )
-        self.channel_token_proj = PGAU(
-            in_channels,
-            flatten_dims,
-            gau_cfg.hidden_dims,
-            s=flatten_dims // 2,
-            dropout_rate=gau_cfg.dropout_rate,
-            drop_path=gau_cfg.drop_path,
-            shift='time' if gau_cfg.shift else None,
-            act_fn=gau_cfg.act_fn,
-            use_rel_bias=False)
-        self.act = StarReLU(True)
-        self.pixel_token_proj = PGAU(
-            flatten_dims,
-            in_channels,
-            out_channels,
-            s=gau_cfg.s,
-            dropout_rate=gau_cfg.dropout_rate,
-            drop_path=gau_cfg.drop_path,
-            shift=None,
-            act_fn=gau_cfg.act_fn,
-            use_rel_bias=False)
-        self.mlp = nn.Linear(
-            gau_cfg.hidden_dims, gau_cfg.hidden_dims, bias=False)
-
-        encoder = [
+        self_attn_module = [
             PGAU(
                 in_channels,
                 gau_cfg.hidden_dims,
@@ -148,7 +143,7 @@ class RTMHead(BaseHead):
                 use_rel_bias=gau_cfg.use_rel_bias)
             for _ in range(self.num_self_attn)
         ]
-        self.encoder = nn.Sequential(*encoder)
+        self.self_attn_module = nn.Sequential(*self_attn_module)
 
         if axis_align:
             block_x = PGAU(
@@ -236,22 +231,26 @@ class RTMHead(BaseHead):
             pred_y (Tensor): 1d representation of y.
         """
         feats = self._transform_inputs(feats)
-        # feats = self.gap(feats)
+
+        if self.channel_mixing == 'light':
+            # B, C, HW
+            feats = self.final_layer(feats)  # -> B, K, hidden
 
         # flatten the output heatmap
         feats = torch.flatten(feats, 2)
         if self.use_hilbert_flatten:
             feats = feats[:, :, self.hilbert_mapping]
 
-        # B, 768, 48
-        feats = self.channel_token_proj(feats)  # -> B, 768, 256
-        feats = feats.permute(0, 2, 1)  # -> B, 256, 768
-        feats = self.act(feats)
-        feats = self.pixel_token_proj(feats)  # -> B, 256, 17
-        feats = feats.permute(0, 2, 1)  # -> B, 17, 256
-        feats = self.mlp(feats)
+        if self.channel_mixing == 'heavy':
+            # B, C, HW
+            feats = self.channel_token_proj(feats)  # -> B, C, hidden
+            feats = feats.permute(0, 2, 1)  # -> B, hidden, C
+            feats = self.act(feats)
+            feats = self.pixel_token_proj(feats)  # -> B, hidden, K
+            feats = feats.permute(0, 2, 1)  # -> B, K, hidden
+            feats = self.mlp(feats)  # -> B, K, hidden
 
-        feats = self.encoder(feats)
+        feats = self.self_attn_module(feats)
 
         pred_x = self.mlp_x(feats)
         pred_y = self.mlp_y(feats)
