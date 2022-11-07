@@ -13,6 +13,7 @@ from .rtm_headv5 import RTMHeadv5
 from .rtm_headv6 import RTMHeadv6
 from .rtm_headv7 import RTMHeadv7
 from .rtm_headv8 import RTMHeadv8
+from .rtm_headv9 import RTMHeadv9
 from .selfmatch_head import SelfMatchHead
 from .simcc_gap_fc_head import SimCC_GAP_FC
 from .simcc_gau_head import SimCC_GAU_Head
@@ -34,5 +35,5 @@ __all__ = [
     'SimCC_Proposal_Head', 'SelfMatchHead', 'KptCoordHead', 'KCMHead',
     'SimKCMHead', 'Sigma_Head', 'SimTokenHead', 'SimOTAHead', 'RTMHead',
     'RTMHeadv2', 'RTMHeadv3', 'RTMHeadv4', 'RTMHeadv5', 'RTMHeadv6',
-    'RTMHeadv7', 'RTMHeadv8'
+    'RTMHeadv7', 'RTMHeadv8', 'RTMHeadv9'
 ]
