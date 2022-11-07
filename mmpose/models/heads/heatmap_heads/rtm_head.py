@@ -94,6 +94,7 @@ class RTMHead(BaseHead):
                 out_channels=out_channels,
                 kernel_size=1)
             self.final_layer = build_conv_layer(cfg)
+            self.mlp = nn.Linear(flatten_dims, gau_cfg.hidden_dims, bias=False)
 
         else:
             self.channel_token_proj = RTMBlock(

@@ -25,7 +25,7 @@ optim_wrapper = dict(
 param_scheduler = [
     dict(
         type='LinearLR',
-        start_factor=1.0e-6,
+        start_factor=1.0e-5,
         by_epoch=False,
         begin=0,
         end=1000),
@@ -65,8 +65,8 @@ model = dict(
         type='CSPNeXt',
         arch='P5',
         expand_ratio=0.5,
-        deepen_factor=0.67,
-        widen_factor=0.75,
+        deepen_factor=0.33,
+        widen_factor=0.5,
         out_indices=(4, ),
         channel_attention=True,
         act_cfg=dict(type='SiLU'),
@@ -74,15 +74,15 @@ model = dict(
             type='Pretrained',
             prefix='backbone.',
             checkpoint='/mnt/petrelfs/jiangtao/pretrained_models/'
-            'cspnext-m_coco_256x192.pth')),
+            'cspnext-s_coco_256x192.pth')),
     head=dict(
         type='RTMHead',
-        in_channels=768,
+        in_channels=512,
         out_channels=17,
         input_size=codec['input_size'],
         in_featuremap_size=(6, 8),
         simcc_split_ratio=codec['simcc_split_ratio'],
-        channel_mixing='full',
+        channel_mixing='lite',
         use_hilbert_flatten=True,
         gau_cfg=dict(
             hidden_dims=256,

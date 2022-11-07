@@ -182,7 +182,7 @@ train_pipeline_stage2 = [
                 min_holes=1,
                 min_height=0.2,
                 min_width=0.2,
-                p=0.7),
+                p=0.5),
         ]),
     dict(type='GenerateTarget', encoder=codec),
     dict(type='PackPoseInputs')
