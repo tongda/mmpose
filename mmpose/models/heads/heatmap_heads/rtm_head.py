@@ -127,12 +127,12 @@ class RTMHead(BaseHead):
                 hilbert_mapping.append(x * in_featuremap_size[0] + y)
             self.hilbert_mapping = hilbert_mapping
 
-        W = int(self.input_size[0] * gau_cfg.simcc_split_ratio)
-        H = int(self.input_size[1] * gau_cfg.simcc_split_ratio)
+        W = int(self.input_size[0] * self.simcc_split_ratio)
+        H = int(self.input_size[1] * self.simcc_split_ratio)
 
         self_attn_module = [
             RTMBlock(
-                in_channels,
+                self.out_channels,
                 gau_cfg.hidden_dims,
                 gau_cfg.hidden_dims,
                 s=gau_cfg.s,
@@ -147,7 +147,7 @@ class RTMHead(BaseHead):
 
         if axis_align:
             block_x = RTMBlock(
-                in_channels,
+                self.out_channels,
                 gau_cfg.hidden_dims,
                 gau_cfg.hidden_dims,
                 s=gau_cfg.s,
@@ -157,7 +157,7 @@ class RTMHead(BaseHead):
                 act_fn=gau_cfg.act_fn,
                 use_rel_bias=gau_cfg.use_rel_bias)
             block_y = RTMBlock(
-                in_channels,
+                self.out_channels,
                 gau_cfg.hidden_dims,
                 gau_cfg.hidden_dims,
                 s=gau_cfg.s,
@@ -170,7 +170,7 @@ class RTMHead(BaseHead):
             self.mlp_y = SE(block_y)
         else:
             self.mlp_x = RTMBlock(
-                in_channels,
+                self.out_channels,
                 gau_cfg.hidden_dims,
                 gau_cfg.hidden_dims if self.use_coord_token else W,
                 s=gau_cfg.s,
@@ -180,7 +180,7 @@ class RTMHead(BaseHead):
                 act_fn=gau_cfg.act_fn,
                 use_rel_bias=gau_cfg.use_rel_bias)
             self.mlp_y = RTMBlock(
-                in_channels,
+                self.out_channels,
                 gau_cfg.hidden_dims,
                 gau_cfg.hidden_dims if self.use_coord_token else H,
                 s=gau_cfg.s,
@@ -248,8 +248,8 @@ class RTMHead(BaseHead):
             feats = self.act(feats)
             feats = self.pixel_token_proj(feats)  # -> B, hidden, K
             feats = feats.permute(0, 2, 1)  # -> B, K, hidden
-            feats = self.mlp(feats)  # -> B, K, hidden
 
+        feats = self.mlp(feats)  # -> B, K, hidden
         feats = self.self_attn_module(feats)
 
         pred_x = self.mlp_x(feats)
