@@ -4,7 +4,6 @@ from typing import Optional, Sequence, Tuple, Union
 # import numpy as np
 import torch
 # import torch.nn.functional as F
-from mmcv.cnn import build_conv_layer
 from torch import Tensor, nn
 
 from mmpose.evaluation.functional import simcc_pck_accuracy
@@ -14,7 +13,7 @@ from mmpose.registry import KEYPOINT_CODECS, MODELS
 from mmpose.utils.tensor_utils import to_numpy
 from mmpose.utils.typing import (ConfigType, InstanceList, OptConfigType,
                                  OptSampleList)
-from ...utils.gau import GAU, StarReLU
+from ...utils.gau import GAU, ScaleNorm, StarReLU
 from ..base_head import BaseHead
 
 OptIntSeq = Optional[Sequence[int]]
@@ -37,7 +36,7 @@ class SE(nn.Module):
 
 
 @MODELS.register_module()
-class RTMHeadv6(BaseHead):
+class RTMHeadv8(BaseHead):
 
     _version = 2
 
@@ -46,7 +45,7 @@ class RTMHeadv6(BaseHead):
         in_channels: Union[int, Sequence[int]],
         out_channels: int,
         input_size: Tuple[int, int],
-        in_featuremap_size: Union[Tuple[int, int], Sequence[Tuple]],
+        in_featuremap_size: Tuple[int, int],
         simcc_split_ratio: float = 2.0,
         use_hilbert_flatten: bool = False,
         hidden_dims: int = 256,
@@ -100,42 +99,67 @@ class RTMHeadv6(BaseHead):
         else:
             self.decoder = None
 
-        if not isinstance(in_channels, list):
-            in_channels = [in_channels]
+        if isinstance(in_channels, list):
+            raise ValueError(
+                f'{self.__class__.__name__} does not support selecting '
+                'multiple input features.')
 
-        final_layer, mlp, hilbert_mapping = [], [], []
-        for in_dim, in_fs in zip(in_channels, in_featuremap_size):
-            cfg = dict(
-                type='Conv2d',
-                in_channels=in_dim,
-                out_channels=out_channels,
-                kernel_size=1)
-            layer = build_conv_layer(cfg)
-            final_layer.append(layer)
+        in_channels = self._get_in_channels()
 
-            # Define SimCC layers
-            flatten_dims = in_fs[0] * in_fs[1]
+        # cfg = dict(
+        #     type='Conv2d',
+        #     in_channels=in_channels,
+        #     out_channels=out_channels*4,
+        #     kernel_size=5,
+        #     padding=2,
+        #     )
+        # self.final_layer = build_conv_layer(cfg)
 
-            if use_hilbert_flatten:
-                t_hilbert_mapping = []
-                for x, y in gilbert2d(in_fs[1], in_fs[0]):
-                    t_hilbert_mapping.append(x * in_fs[0] + y)
-                hilbert_mapping.append(t_hilbert_mapping)
+        # Define SimCC layers
+        flatten_dims = self.in_featuremap_size[0] * self.in_featuremap_size[1]
 
-            t_mlp = nn.Linear(flatten_dims, hidden_dims)
-            mlp.append(t_mlp)
-        self.final_layer = nn.ModuleList(final_layer)
-        self.mlp = nn.ModuleList(mlp)
-        self.hilbert_mapping = hilbert_mapping
-
-        self.act = StarReLU(True)
-        self.fc = nn.Linear(hidden_dims, hidden_dims)
+        if use_hilbert_flatten:
+            hilbert_mapping = []
+            for x, y in gilbert2d(in_featuremap_size[1],
+                                  in_featuremap_size[0]):
+                hilbert_mapping.append(x * in_featuremap_size[0] + y)
+            self.hilbert_mapping = hilbert_mapping
 
         W = int(self.input_size[0] * self.simcc_split_ratio)
         H = int(self.input_size[1] * self.simcc_split_ratio)
 
+        # self.mlp = nn.Sequential(
+        #     ScaleNorm(flatten_dims),
+        #     nn.Linear(flatten_dims, hidden_dims, bias=False),
+        #     StarReLU(True),
+        #     nn.Conv1d(in_channels, out_channels, 1, bias=False),
+        #     nn.Linear(hidden_dims, hidden_dims, bias=False)
+        # )
+        self.channel_token_proj = GAU(
+            in_channels,
+            flatten_dims,
+            hidden_dims,
+            s=flatten_dims // 2,
+            use_dropout=use_dropout,
+            attn=attn,
+            shift=shift,
+            act=act_fn,
+            use_rel_bias=False)
+        self.act = StarReLU(True)
+        self.pixel_token_proj = GAU(
+            flatten_dims,
+            in_channels,
+            out_channels,
+            s=s,
+            use_dropout=use_dropout,
+            attn=attn,
+            shift=shift,
+            act=act_fn,
+            use_rel_bias=False)
+        self.mlp = nn.Linear(hidden_dims, hidden_dims, bias=False)
+
         encoder = [
-            GAU(self.out_channels,
+            GAU(in_channels,
                 hidden_dims,
                 hidden_dims,
                 s=s,
@@ -148,16 +172,12 @@ class RTMHeadv6(BaseHead):
 
         if use_se:
             self.mlp_x = SE(
-                num_token=self.out_channels,
-                in_channels=hidden_dims,
-                act=act_fn)
+                num_token=in_channels, in_channels=hidden_dims, act=act_fn)
             self.mlp_y = SE(
-                num_token=self.out_channels,
-                in_channels=hidden_dims,
-                act=act_fn)
+                num_token=in_channels, in_channels=hidden_dims, act=act_fn)
         else:
             self.mlp_x = GAU(
-                self.out_channels,
+                in_channels,
                 hidden_dims,
                 hidden_dims if self.use_decoder else W,
                 s=s,
@@ -166,7 +186,7 @@ class RTMHeadv6(BaseHead):
                 shift=shift,
                 act=act_fn)
             self.mlp_y = GAU(
-                self.out_channels,
+                in_channels,
                 hidden_dims,
                 hidden_dims if self.use_decoder else H,
                 s=s,
@@ -178,6 +198,8 @@ class RTMHeadv6(BaseHead):
         if use_decoder:
             self.coord_x_token = nn.Parameter(torch.randn((1, W, hidden_dims)))
             self.coord_y_token = nn.Parameter(torch.randn((1, H, hidden_dims)))
+            # self.coord_x_bias = nn.Parameter(torch.randn((1, 1, W)))
+            # self.coord_y_bias = nn.Parameter(torch.randn((1, 1, H)))
 
             self.decoder_x = GAU(
                 self.out_channels,
@@ -200,6 +222,35 @@ class RTMHeadv6(BaseHead):
                 shift=shift,
                 act=act_fn)
 
+            if token_norm:
+                self.tn_x = ScaleNorm(hidden_dims)
+                self.tn_y = ScaleNorm(hidden_dims)
+
+        if refine == 'mlp':
+            self.refine_x = nn.Linear(W, W)
+            self.refine_y = nn.Linear(H, H)
+        elif refine == 'gau':
+            self.refine_x = GAU(
+                self.out_channels,
+                W,
+                W,
+                s=s,
+                use_dropout=use_dropout,
+                self_attn=True,
+                attn=attn,
+                shift=shift,
+                act=act_fn)
+            self.refine_y = GAU(
+                self.out_channels,
+                H,
+                H,
+                s=s,
+                use_dropout=use_dropout,
+                self_attn=True,
+                attn=attn,
+                shift=shift,
+                act=act_fn)
+
     def forward(self, feats: Tuple[Tensor]) -> Tuple[Tensor, Tensor]:
         """Forward the network. The input is multi scale feature maps and the
         output is the heatmap.
@@ -211,20 +262,23 @@ class RTMHeadv6(BaseHead):
             pred_x (Tensor): 1d representation of x.
             pred_y (Tensor): 1d representation of y.
         """
-        # feats = self._transform_inputs(feats)
-        feature = 1.
-        for i, each_feat in enumerate(feats):
-            feat = self.final_layer[i](each_feat)
+        feats = self._transform_inputs(feats)
 
-            # flatten the output heatmap
-            feat = torch.flatten(feat, 2)
-            if self.use_hilbert_flatten:
-                feat = feat[:, :, self.hilbert_mapping[i]]
+        # feats = self.final_layer(feats)
 
-            feat = self.mlp[i](feat)
-            feature *= self.act(feat)
+        # flatten the output heatmap
+        feats = torch.flatten(feats, 2)
+        if self.use_hilbert_flatten:
+            feats = feats[:, :, self.hilbert_mapping]
 
-        feats = self.fc(feature)
+        # B, 768, 48
+        feats = self.channel_token_proj(feats)  # -> B, 768, 256
+        feats = feats.permute(0, 2, 1)  # -> B, 256, 768
+        feats = self.act(feats)
+        feats = self.pixel_token_proj(feats)  # -> B, 256, 17
+        feats = feats.permute(0, 2, 1)  # -> B, 17, 256
+        feats = self.mlp(feats)
+
         feats = self.encoder(feats)
 
         pred_x = self.mlp_x(feats)
@@ -233,6 +287,8 @@ class RTMHeadv6(BaseHead):
         if self.use_decoder:
             coord_x_token = self.coord_x_token.repeat((feats.size(0), 1, 1))
             coord_y_token = self.coord_y_token.repeat((feats.size(0), 1, 1))
+            # coord_x_bias = self.coord_x_bias.repeat((feats.size(0), 1, 1))
+            # coord_y_bias = self.coord_y_bias.repeat((feats.size(0), 1, 1))
 
             if self.cross_attn:
                 pred_x = self.decoder_x((pred_x, coord_x_token, coord_x_token))
@@ -241,8 +297,16 @@ class RTMHeadv6(BaseHead):
                 pred_x = self.decoder_x(pred_x)
                 pred_y = self.decoder_y(pred_y)
 
+            if self.token_norm:
+                pred_x = self.tn_x(pred_x)
+                pred_y = self.tn_y(pred_y)
+
             pred_x = torch.bmm(pred_x, coord_x_token.permute(0, 2, 1))
             pred_y = torch.bmm(pred_y, coord_y_token.permute(0, 2, 1))
+
+        if self.refine is not None:
+            pred_x = self.refine_x(pred_x)
+            pred_y = self.refine_y(pred_y)
 
         return pred_x, pred_y
 

@@ -111,7 +111,9 @@ class RTMHead(BaseHead):
             type='Conv2d',
             in_channels=in_channels,
             out_channels=out_channels,
-            kernel_size=1)
+            kernel_size=5,
+            padding=2,
+        )
         self.final_layer = build_conv_layer(cfg)
 
         # Define SimCC layers
@@ -173,8 +175,8 @@ class RTMHead(BaseHead):
         if use_decoder:
             self.coord_x_token = nn.Parameter(torch.randn((1, W, hidden_dims)))
             self.coord_y_token = nn.Parameter(torch.randn((1, H, hidden_dims)))
-            self.coord_x_bias = nn.Parameter(torch.randn((1, W, 1)))
-            self.coord_y_bias = nn.Parameter(torch.randn((1, H, 1)))
+            # self.coord_x_bias = nn.Parameter(torch.randn((1, 1, W)))
+            # self.coord_y_bias = nn.Parameter(torch.randn((1, 1, H)))
 
             self.decoder_x = GAU(
                 self.out_channels,
@@ -256,8 +258,8 @@ class RTMHead(BaseHead):
         if self.use_decoder:
             coord_x_token = self.coord_x_token.repeat((feats.size(0), 1, 1))
             coord_y_token = self.coord_y_token.repeat((feats.size(0), 1, 1))
-            coord_x_bias = self.coord_x_bias.repeat((feats.size(0), 1, 1))
-            coord_y_bias = self.coord_y_bias.repeat((feats.size(0), 1, 1))
+            # coord_x_bias = self.coord_x_bias.repeat((feats.size(0), 1, 1))
+            # coord_y_bias = self.coord_y_bias.repeat((feats.size(0), 1, 1))
 
             if self.cross_attn:
                 pred_x = self.decoder_x((pred_x, coord_x_token, coord_x_token))
@@ -270,10 +272,8 @@ class RTMHead(BaseHead):
                 pred_x = self.tn_x(pred_x)
                 pred_y = self.tn_y(pred_y)
 
-            pred_x = torch.bmm(pred_x, coord_x_token.permute(0, 2,
-                                                             1)) + coord_x_bias
-            pred_y = torch.bmm(pred_y, coord_y_token.permute(0, 2,
-                                                             1)) + coord_y_bias
+            pred_x = torch.bmm(pred_x, coord_x_token.permute(0, 2, 1))
+            pred_y = torch.bmm(pred_y, coord_y_token.permute(0, 2, 1))
 
         if self.refine is not None:
             pred_x = self.refine_x(pred_x)

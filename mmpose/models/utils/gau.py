@@ -62,7 +62,8 @@ class GAU(nn.Module):
                  shift=False,
                  coord_dims=512,
                  act='silu',
-                 bias=False):
+                 bias=False,
+                 use_rel_bias=True):
 
         super(GAU, self).__init__()
         self.s = s
@@ -70,14 +71,16 @@ class GAU(nn.Module):
         self.attn = attn
         self.shift = shift
         self.drop_path = drop_path
+        self.use_rel_bias = use_rel_bias
 
         self.e = int(hidden_size * expansion_factor)
-        if self_attn:
-            self.w = nn.Parameter(
-                torch.rand([2 * max_seq_length - 1], dtype=torch.float))
-        else:
-            self.w = nn.Parameter(
-                torch.rand([2 * coord_dims - 1], dtype=torch.float))
+        if use_rel_bias:
+            if self_attn:
+                self.w = nn.Parameter(
+                    torch.rand([2 * max_seq_length - 1], dtype=torch.float))
+            else:
+                self.w = nn.Parameter(
+                    torch.rand([2 * coord_dims - 1], dtype=torch.float))
         # self.a = nn.Parameter(torch.rand([1, self.s], dtype=torch.float))
         # self.b = nn.Parameter(torch.rand([1, self.s], dtype=torch.float))
         self.o = nn.Linear(self.e, output_size, bias=bias)
@@ -165,11 +168,11 @@ class GAU(nn.Module):
         return torch.cat([x1 * cos - x2 * sin, x2 * cos + x1 * sin], dim=-1)
 
     def rel_pos_bias(self, seq_len):
-        if seq_len <= 512:
-            t = F.pad(self.w[:2 * seq_len - 1], [0, seq_len]).repeat(seq_len)
-            t = t[..., :-seq_len].reshape(-1, seq_len, 3 * seq_len - 2)
-            r = (2 * seq_len - 1) // 2
-            t = t[..., r:-r]
+
+        t = F.pad(self.w[:2 * seq_len - 1], [0, seq_len]).repeat(seq_len)
+        t = t[..., :-seq_len].reshape(-1, seq_len, 3 * seq_len - 2)
+        r = (2 * seq_len - 1) // 2
+        t = t[..., r:-r]
         # else:
         # #     # raise Exception("sequence length error.")
         # a = self.rope(self.a.repeat(seq_len, 1), dim=0)
@@ -236,10 +239,11 @@ class GAU(nn.Module):
         # qk = torch.einsum('bnd,bmd->bnm', q, k)
         qk = torch.bmm(q, k.permute(0, 2, 1))
         # print('q', q.shape, 'k', k.shape, 'qk', qk.shape)
-        bias = self.rel_pos_bias(max(q.size(1),
-                                     k.size(1)))[:, :q.size(1), :k.size(1)]
-        # print('bias', bias.shape)
-        qk += bias
+        if self.use_rel_bias:
+            bias = self.rel_pos_bias(max(q.size(1),
+                                         k.size(1)))[:, :q.size(1), :k.size(1)]
+            # print('bias', bias.shape)
+            qk += bias
 
         if self.attn == 'softmax':
             kernel = F.softmax(
