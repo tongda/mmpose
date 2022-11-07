@@ -69,7 +69,7 @@ class StarReLU(nn.Module):
         return self.scale * self.relu(x)**2 + self.bias
 
 
-class PGAU(nn.Module):
+class RTMBlock(nn.Module):
 
     def __init__(
             self,
@@ -88,7 +88,7 @@ class PGAU(nn.Module):
             bias=False,
             use_rel_bias=True):
 
-        super(PGAU, self).__init__()
+        super(RTMBlock, self).__init__()
         self.s = s
         self.num_token = num_token
         self.shift = shift

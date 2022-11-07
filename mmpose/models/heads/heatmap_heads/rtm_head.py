@@ -12,7 +12,7 @@ from mmpose.registry import KEYPOINT_CODECS, MODELS
 from mmpose.utils.tensor_utils import to_numpy
 from mmpose.utils.typing import (ConfigType, InstanceList, OptConfigType,
                                  OptSampleList)
-from ...utils.rtmpose_block import PGAU, SE, StarReLU
+from ...utils.rtmpose_block import SE, RTMBlock, StarReLU
 from ..base_head import BaseHead
 
 OptIntSeq = Optional[Sequence[int]]
@@ -96,7 +96,7 @@ class RTMHead(BaseHead):
             self.final_layer = build_conv_layer(cfg)
 
         else:
-            self.channel_token_proj = PGAU(
+            self.channel_token_proj = RTMBlock(
                 in_channels,
                 flatten_dims,
                 gau_cfg.hidden_dims,
@@ -107,7 +107,7 @@ class RTMHead(BaseHead):
                 act_fn=gau_cfg.act_fn,
                 use_rel_bias=False)
             self.act = StarReLU(True)
-            self.pixel_token_proj = PGAU(
+            self.pixel_token_proj = RTMBlock(
                 flatten_dims,
                 in_channels,
                 out_channels,
@@ -131,7 +131,7 @@ class RTMHead(BaseHead):
         H = int(self.input_size[1] * gau_cfg.simcc_split_ratio)
 
         self_attn_module = [
-            PGAU(
+            RTMBlock(
                 in_channels,
                 gau_cfg.hidden_dims,
                 gau_cfg.hidden_dims,
@@ -146,7 +146,7 @@ class RTMHead(BaseHead):
         self.self_attn_module = nn.Sequential(*self_attn_module)
 
         if axis_align:
-            block_x = PGAU(
+            block_x = RTMBlock(
                 in_channels,
                 gau_cfg.hidden_dims,
                 gau_cfg.hidden_dims,
@@ -156,7 +156,7 @@ class RTMHead(BaseHead):
                 shift='structure' if gau_cfg.shift else None,
                 act_fn=gau_cfg.act_fn,
                 use_rel_bias=gau_cfg.use_rel_bias)
-            block_y = PGAU(
+            block_y = RTMBlock(
                 in_channels,
                 gau_cfg.hidden_dims,
                 gau_cfg.hidden_dims,
@@ -169,7 +169,7 @@ class RTMHead(BaseHead):
             self.mlp_x = SE(block_x)
             self.mlp_y = SE(block_y)
         else:
-            self.mlp_x = PGAU(
+            self.mlp_x = RTMBlock(
                 in_channels,
                 gau_cfg.hidden_dims,
                 gau_cfg.hidden_dims if self.use_coord_token else W,
@@ -179,7 +179,7 @@ class RTMHead(BaseHead):
                 shift='structure' if gau_cfg.shift else None,
                 act_fn=gau_cfg.act_fn,
                 use_rel_bias=gau_cfg.use_rel_bias)
-            self.mlp_y = PGAU(
+            self.mlp_y = RTMBlock(
                 in_channels,
                 gau_cfg.hidden_dims,
                 gau_cfg.hidden_dims if self.use_coord_token else H,
@@ -196,7 +196,7 @@ class RTMHead(BaseHead):
             self.coord_y_token = nn.Parameter(
                 torch.randn((1, H, gau_cfg.hidden_dims)))
 
-            self.decoder_x = PGAU(
+            self.decoder_x = RTMBlock(
                 self.out_channels,
                 gau_cfg.hidden_dims,
                 gau_cfg.hidden_dims,
@@ -207,7 +207,7 @@ class RTMHead(BaseHead):
                 shift='structure' if gau_cfg.shift else None,
                 act_fn=gau_cfg.act_fn,
                 use_rel_bias=gau_cfg.use_rel_bias)
-            self.decoder_y = PGAU(
+            self.decoder_y = RTMBlock(
                 self.out_channels,
                 gau_cfg.hidden_dims,
                 gau_cfg.hidden_dims,
