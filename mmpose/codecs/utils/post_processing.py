@@ -167,7 +167,7 @@ def gaussian_blur1d(simcc: np.ndarray, kernel: int = 11) -> np.ndarray:
         dr = cv2.GaussianBlur(dr, (kernel, 1), 0)
         simcc[n, k] = dr[0, border:-border].copy()
         simcc[n, k] *= origin_max / np.max(simcc[n, k])
-    return
+    return simcc
 
 
 def batch_heatmap_nms(batch_heatmaps: Tensor, kernel_size: int = 5):

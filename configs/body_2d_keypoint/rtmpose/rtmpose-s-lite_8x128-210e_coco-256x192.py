@@ -3,7 +3,7 @@ _base_ = ['../../_base_/default_runtime.py']
 # runtime
 max_epochs = 210
 stage2_num_epochs = 30
-base_lr = 4e-3
+base_lr = 5e-4
 
 train_cfg = dict(max_epochs=max_epochs, val_interval=10)
 
@@ -74,7 +74,7 @@ model = dict(
             type='Pretrained',
             prefix='backbone.',
             checkpoint='/mnt/petrelfs/jiangtao/pretrained_models/'
-            'cspnext-m_coco_256x192.pth')),
+            'cspnext-s_coco_256x192.pth')),
     head=dict(
         type='RTMHead',
         in_channels=512,
