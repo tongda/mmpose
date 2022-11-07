@@ -21,12 +21,12 @@ OptIntSeq = Optional[Sequence[int]]
 
 class SE(nn.Module):
 
-    def __init__(self, num_token, in_channels, act_fn='silu'):
+    def __init__(self, block):
         super().__init__()
-        self.fc1 = PGAU(num_token, in_channels, in_channels, act_fn=act_fn)
+        self.block = block
 
     def forward(self, x):
-        w = self.fc1(x).sigmoid()
+        w = self.block(x).sigmoid()
         x = x * w
         return x
 
@@ -81,6 +81,7 @@ class RTMHeadv9(BaseHead):
         self.hidden_dims = gau_cfg.hidden_dims
         self.s = gau_cfg.s
         self.shift = gau_cfg.shift
+        self.dropout_rate = gau_cfg.dropout_rate
         self.drop_path = gau_cfg.drop_path
         self.num_enc = num_enc
         self.use_decoder = use_decoder
@@ -136,7 +137,7 @@ class RTMHeadv9(BaseHead):
             s=flatten_dims // 2,
             dropout_rate=self.dropout_rate,
             drop_path=self.drop_path,
-            shift=self.shift,
+            shift='time' if self.shift else None,
             act_fn=self.act_fn,
             use_rel_bias=False)
         self.act = StarReLU(True)
@@ -147,7 +148,7 @@ class RTMHeadv9(BaseHead):
             s=self.s,
             dropout_rate=self.dropout_rate,
             drop_path=self.drop_path,
-            shift=self.shift,
+            shift=None,
             act_fn=self.act_fn,
             use_rel_bias=False)
         self.mlp = nn.Linear(self.hidden_dims, self.hidden_dims, bias=False)
@@ -160,20 +161,32 @@ class RTMHeadv9(BaseHead):
                 s=self.s,
                 dropout_rate=self.dropout_rate,
                 drop_path=self.drop_path,
-                shift=self.shift,
+                shift='structure' if self.shift else None,
                 act_fn=self.act_fn) for _ in range(self.num_enc)
         ]
         self.encoder = nn.Sequential(*encoder)
 
         if use_se:
-            self.mlp_x = SE(
-                num_token=in_channels,
-                in_channels=self.hidden_dims,
+            block_x = PGAU(
+                in_channels,
+                self.hidden_dims,
+                self.hidden_dims,
+                s=self.s,
+                dropout_rate=self.dropout_rate,
+                drop_path=0.,
+                shift='structure' if self.shift else None,
                 act_fn=self.act_fn)
-            self.mlp_y = SE(
-                num_token=in_channels,
-                in_channels=self.hidden_dims,
+            block_y = PGAU(
+                in_channels,
+                self.hidden_dims,
+                self.hidden_dims,
+                s=self.s,
+                dropout_rate=self.dropout_rate,
+                drop_path=0.,
+                shift='structure' if self.shift else None,
                 act_fn=self.act_fn)
+            self.mlp_x = SE(block_x)
+            self.mlp_y = SE(block_y)
         else:
             self.mlp_x = PGAU(
                 in_channels,
@@ -182,7 +195,7 @@ class RTMHeadv9(BaseHead):
                 s=self.s,
                 dropout_rate=self.dropout_rate,
                 drop_path=self.drop_path,
-                shift=self.shift,
+                shift='structure' if self.shift else None,
                 act_fn=self.act_fn)
             self.mlp_y = PGAU(
                 in_channels,
@@ -191,7 +204,7 @@ class RTMHeadv9(BaseHead):
                 s=self.s,
                 dropout_rate=self.dropout_rate,
                 drop_path=self.drop_path,
-                shift=self.shift,
+                shift='structure' if self.shift else None,
                 act_fn=self.act_fn)
 
         if use_decoder:
@@ -208,7 +221,7 @@ class RTMHeadv9(BaseHead):
                 dropout_rate=self.dropout_rate,
                 drop_path=self.drop_path,
                 attn_type='cross-attn' if cross_attn else 'self-attn',
-                shift=self.shift,
+                shift='structure' if self.shift else None,
                 act_fn=self.act_fn)
             self.decoder_y = PGAU(
                 self.out_channels,
@@ -218,7 +231,7 @@ class RTMHeadv9(BaseHead):
                 dropout_rate=self.dropout_rate,
                 drop_path=self.drop_path,
                 attn_type='cross-attn' if cross_attn else 'self-attn',
-                shift=self.shift,
+                shift='structure' if self.shift else None,
                 act_fn=self.act_fn)
 
     def forward(self, feats: Tuple[Tensor]) -> Tuple[Tensor, Tensor]:
