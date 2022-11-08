@@ -279,7 +279,7 @@ class SimCCLabel(BaseKeypointCodec):
 
         if self.normalize:
             norm_value = self.sigma * np.sqrt(np.pi * 2)
-            target_x /= norm_value
-            target_y /= norm_value
+            target_x /= norm_value[0]
+            target_y /= norm_value[1]
 
         return target_x, target_y, keypoint_weights
