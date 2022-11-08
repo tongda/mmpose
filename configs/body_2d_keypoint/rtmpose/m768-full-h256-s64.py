@@ -88,6 +88,7 @@ model = dict(
             hidden_dims=256,
             s=64,
             shift=True,
+            shift_type='time',
             dropout_rate=0.,
             drop_path=0.15,
             act_fn='StarReLU',

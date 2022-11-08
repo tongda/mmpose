@@ -34,6 +34,7 @@ class RTMHead(BaseHead):
             hidden_dims=256,
             s=128,
             shift=True,
+            shift_type='time',
             dropout_rate=0.,
             drop_path=0.,
             act_fn='StarReLU',
@@ -104,7 +105,7 @@ class RTMHead(BaseHead):
                 s=flatten_dims // 2,
                 dropout_rate=gau_cfg.dropout_rate,
                 drop_path=gau_cfg.drop_path,
-                shift='time' if gau_cfg.shift else None,
+                shift=None,
                 act_fn=gau_cfg.act_fn,
                 use_rel_bias=False)
             self.act = StarReLU(True)
@@ -115,7 +116,7 @@ class RTMHead(BaseHead):
                 s=gau_cfg.s,
                 dropout_rate=gau_cfg.dropout_rate,
                 drop_path=gau_cfg.drop_path,
-                shift=None,
+                shift=gau_cfg.shift_type,
                 act_fn=gau_cfg.act_fn,
                 use_rel_bias=False)
             self.mlp = nn.Linear(
@@ -139,7 +140,7 @@ class RTMHead(BaseHead):
                 s=gau_cfg.s,
                 dropout_rate=gau_cfg.dropout_rate,
                 drop_path=gau_cfg.drop_path,
-                shift='structure' if gau_cfg.shift else None,
+                shift=gau_cfg.shift_type if gau_cfg.shift else None,
                 act_fn=gau_cfg.act_fn,
                 use_rel_bias=gau_cfg.use_rel_bias)
             for _ in range(self.num_self_attn)
@@ -154,7 +155,7 @@ class RTMHead(BaseHead):
                 s=gau_cfg.s,
                 dropout_rate=0.,
                 drop_path=0.,
-                shift='structure' if gau_cfg.shift else None,
+                shift=gau_cfg.shift_type if gau_cfg.shift else None,
                 act_fn=gau_cfg.act_fn,
                 use_rel_bias=gau_cfg.use_rel_bias)
             block_y = RTMBlock(
@@ -164,7 +165,7 @@ class RTMHead(BaseHead):
                 s=gau_cfg.s,
                 dropout_rate=0.,
                 drop_path=0.,
-                shift='structure' if gau_cfg.shift else None,
+                shift=gau_cfg.shift_type if gau_cfg.shift else None,
                 act_fn=gau_cfg.act_fn,
                 use_rel_bias=gau_cfg.use_rel_bias)
             self.mlp_x = SE(block_x)
@@ -177,7 +178,7 @@ class RTMHead(BaseHead):
                 s=gau_cfg.s,
                 dropout_rate=gau_cfg.dropout_rate,
                 drop_path=gau_cfg.drop_path,
-                shift='structure' if gau_cfg.shift else None,
+                shift=gau_cfg.shift_type if gau_cfg.shift else None,
                 act_fn=gau_cfg.act_fn,
                 use_rel_bias=gau_cfg.use_rel_bias)
             self.mlp_y = RTMBlock(
@@ -187,7 +188,7 @@ class RTMHead(BaseHead):
                 s=gau_cfg.s,
                 dropout_rate=gau_cfg.dropout_rate,
                 drop_path=gau_cfg.drop_path,
-                shift='structure' if gau_cfg.shift else None,
+                shift=gau_cfg.shift_type if gau_cfg.shift else None,
                 act_fn=gau_cfg.act_fn,
                 use_rel_bias=gau_cfg.use_rel_bias)
 
@@ -205,7 +206,7 @@ class RTMHead(BaseHead):
                 dropout_rate=gau_cfg.dropout_rate,
                 drop_path=gau_cfg.drop_path,
                 attn_type='cross-attn' if use_cross_attn else 'self-attn',
-                shift='structure' if gau_cfg.shift else None,
+                shift=gau_cfg.shift_type if gau_cfg.shift else None,
                 act_fn=gau_cfg.act_fn,
                 use_rel_bias=gau_cfg.use_rel_bias)
             self.decoder_y = RTMBlock(
@@ -216,7 +217,7 @@ class RTMHead(BaseHead):
                 dropout_rate=gau_cfg.dropout_rate,
                 drop_path=gau_cfg.drop_path,
                 attn_type='cross-attn' if use_cross_attn else 'self-attn',
-                shift='structure' if gau_cfg.shift else None,
+                shift=gau_cfg.shift_type if gau_cfg.shift else None,
                 act_fn=gau_cfg.act_fn,
                 use_rel_bias=gau_cfg.use_rel_bias)
 
