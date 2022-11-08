@@ -265,16 +265,9 @@ class RTMBlock(nn.Module):
         if self.shortcut:
             if self.attn_type == 'cross-attn':
                 res_shortcut = x[0]
-                if self.training:
-                    main_branch = self.drop_path(self._forward(x))[0]
-                else:
-                    main_branch = self._forward(x)
             else:
                 res_shortcut = x
-                main_branch = self.drop_path(self._forward(x))
+            main_branch = self.drop_path(self._forward(x))
             return self.res_scale(res_shortcut) + self.layer_scale(main_branch)
         else:
-            if self.training:
-                return self.layer_scale(self.drop_path(self._forward(x)))
-            else:
-                return self.layer_scale(self._forward(x))
+            return self.layer_scale(self.drop_path(self._forward(x)))
