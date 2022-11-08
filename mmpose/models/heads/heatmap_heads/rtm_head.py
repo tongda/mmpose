@@ -12,7 +12,7 @@ from mmpose.registry import KEYPOINT_CODECS, MODELS
 from mmpose.utils.tensor_utils import to_numpy
 from mmpose.utils.typing import (ConfigType, InstanceList, OptConfigType,
                                  OptSampleList)
-from ...utils.rtmpose_block import SE, RTMBlock, StarReLU
+from ...utils.rtmpose_block import SE, RTMBlock, ScaleNorm
 from ..base_head import BaseHead
 
 OptIntSeq = Optional[Sequence[int]]
@@ -28,7 +28,6 @@ class RTMHead(BaseHead):
         input_size: Tuple[int, int],
         in_featuremap_size: Tuple[int, int],
         simcc_split_ratio: float = 2.0,
-        channel_mixing: str = 'lite',
         use_hilbert_flatten: bool = False,
         gau_cfg: ConfigType = dict(
             hidden_dims=256,
@@ -66,7 +65,6 @@ class RTMHead(BaseHead):
         self.input_transform = input_transform
         self.input_index = input_index
 
-        self.channel_mixing = channel_mixing
         self.use_hilbert_flatten = use_hilbert_flatten
         self.num_self_attn = num_self_attn
         self.use_coord_token = use_coord_token
@@ -88,39 +86,15 @@ class RTMHead(BaseHead):
         # Define SimCC layers
         flatten_dims = self.in_featuremap_size[0] * self.in_featuremap_size[1]
 
-        if channel_mixing == 'lite':
-            cfg = dict(
-                type='Conv2d',
-                in_channels=in_channels,
-                out_channels=out_channels,
-                kernel_size=1)
-            self.final_layer = build_conv_layer(cfg)
-            self.mlp = nn.Linear(flatten_dims, gau_cfg.hidden_dims, bias=False)
-
-        else:
-            self.channel_token_proj = RTMBlock(
-                in_channels,
-                flatten_dims,
-                gau_cfg.hidden_dims,
-                s=flatten_dims // 2,
-                dropout_rate=gau_cfg.dropout_rate,
-                drop_path=gau_cfg.drop_path,
-                shift=None,
-                act_fn=gau_cfg.act_fn,
-                use_rel_bias=False)
-            self.act = StarReLU(True)
-            self.pixel_token_proj = RTMBlock(
-                flatten_dims,
-                in_channels,
-                out_channels,
-                s=gau_cfg.s,
-                dropout_rate=gau_cfg.dropout_rate,
-                drop_path=gau_cfg.drop_path,
-                shift=gau_cfg.shift_type,
-                act_fn=gau_cfg.act_fn,
-                use_rel_bias=False)
-            self.mlp = nn.Linear(
-                gau_cfg.hidden_dims, gau_cfg.hidden_dims, bias=False)
+        cfg = dict(
+            type='Conv2d',
+            in_channels=in_channels,
+            out_channels=out_channels,
+            kernel_size=1)
+        self.final_layer = build_conv_layer(cfg)
+        self.mlp = nn.Sequential(
+            ScaleNorm(flatten_dims),
+            nn.Linear(flatten_dims, gau_cfg.hidden_dims, bias=False))
 
         if use_hilbert_flatten:
             hilbert_mapping = []
@@ -234,22 +208,12 @@ class RTMHead(BaseHead):
         """
         feats = self._transform_inputs(feats)
 
-        if self.channel_mixing == 'lite':
-            # B, C, HW
-            feats = self.final_layer(feats)  # -> B, K, hidden
+        feats = self.final_layer(feats)  # -> B, K, H, W
 
         # flatten the output heatmap
         feats = torch.flatten(feats, 2)
         if self.use_hilbert_flatten:
             feats = feats[:, :, self.hilbert_mapping]
-
-        if self.channel_mixing == 'full':
-            # B, C, HW
-            feats = self.channel_token_proj(feats)  # -> B, C, hidden
-            feats = feats.permute(0, 2, 1)  # -> B, hidden, C
-            feats = self.act(feats)
-            feats = self.pixel_token_proj(feats)  # -> B, hidden, K
-            feats = feats.permute(0, 2, 1)  # -> B, K, hidden
 
         feats = self.mlp(feats)  # -> B, K, hidden
         feats = self.self_attn_module(feats)
