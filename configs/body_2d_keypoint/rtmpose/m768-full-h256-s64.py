@@ -10,16 +10,9 @@ train_cfg = dict(max_epochs=max_epochs, val_interval=10)
 # optimizer
 optim_wrapper = dict(
     type='OptimWrapper',
-    optimizer=dict(
-        type='AdamW', lr=base_lr, betas=(0.9, 0.999), weight_decay=0.05),
+    optimizer=dict(type='AdamW', lr=base_lr, weight_decay=0.05),
     paramwise_cfg=dict(
-        norm_decay_mult=0,
-        bias_decay_mult=0,
-        bypass_duplicate=True,
-        custom_keys={
-            'backbone': dict(lr_mult=1),
-            'head': dict(lr_mult=0.75)
-        }))
+        norm_decay_mult=0, bias_decay_mult=0, bypass_duplicate=True))
 
 # learning rate
 param_scheduler = [
