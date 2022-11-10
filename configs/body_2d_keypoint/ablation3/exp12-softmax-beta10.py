@@ -6,6 +6,7 @@ stage2_num_epochs = 30
 base_lr = 4e-3
 
 train_cfg = dict(max_epochs=max_epochs, val_interval=10)
+randomness = dict(seed=42)
 
 # optimizer
 optim_wrapper = dict(
