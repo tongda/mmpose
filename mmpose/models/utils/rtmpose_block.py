@@ -253,7 +253,7 @@ class RTMBlock(nn.Module):
 
         kernel = torch.square(F.relu(qk / self.sqrt_s))
 
-        if self.dropout_rate:
+        if self.dropout_rate > 0.:
             kernel = self.dropout(kernel)
 
         x = u * torch.bmm(kernel, v)
@@ -271,6 +271,7 @@ class RTMBlock(nn.Module):
             # return self.res_scale(res_shortcut)
             # + self.layer_scale(main_branch)
             return self.res_scale(res_shortcut) + main_branch
+            # return res_shortcut + main_branch
         else:
             # return self.layer_scale(self.drop_path(self._forward(x)))
             return self.drop_path(self._forward(x))
