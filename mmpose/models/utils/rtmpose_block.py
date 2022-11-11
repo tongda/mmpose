@@ -133,7 +133,7 @@ class RTMBlock(nn.Module):
         else:
             self.shortcut = False
 
-        self.layer_scale = Scale(out_token_dims)
+        # self.layer_scale = Scale(out_token_dims)
 
         self.sqrt_s = math.sqrt(s)
 
@@ -189,9 +189,9 @@ class RTMBlock(nn.Module):
             t = torch.bmm(a, b.permute(0, 2, 1))
         return t
 
-    def shift_mixing(self, x, shift_type='time'):
+    def shift_mixing(self, x):
         x_shift, x_pass = x.chunk(2, dim=-1)
-        if shift_type == 'structure' and len(self.shift_idx) == x.size(1):
+        if self.shift == 'structure' and len(self.shift_idx) == x.size(1):
             x_shift = x_shift[:, self.shift_idx, :]
         else:
             x_shift = F.pad(x_shift, (0, 0, 1, -1), value=0.)
@@ -268,6 +268,9 @@ class RTMBlock(nn.Module):
             else:
                 res_shortcut = x
             main_branch = self.drop_path(self._forward(x))
-            return self.res_scale(res_shortcut) + self.layer_scale(main_branch)
+            # return self.res_scale(res_shortcut)
+            # + self.layer_scale(main_branch)
+            return self.res_scale(res_shortcut) + main_branch
         else:
-            return self.layer_scale(self.drop_path(self._forward(x)))
+            # return self.layer_scale(self.drop_path(self._forward(x)))
+            return self.drop_path(self._forward(x))
