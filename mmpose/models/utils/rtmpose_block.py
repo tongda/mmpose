@@ -223,8 +223,7 @@ class RTMBlock(nn.Module):
 
             base = base.unsqueeze(2) * self.gamma[None, None, :] + self.beta
 
-            if self.use_rel_bias:
-                base = self.rope(base, dim=1)
+            base = self.rope(base, dim=1)
 
             q, k = torch.unbind(base, dim=-2)
 
@@ -238,9 +237,8 @@ class RTMBlock(nn.Module):
             k = self.k_fc(k)
             v = self.v_fc(v)
 
-            if self.use_rel_bias:
-                q = self.rope(q, 1)
-                k = self.rope(k, 1)
+            q = self.rope(q, 1)
+            k = self.rope(k, 1)
 
         qk = torch.bmm(q, k.permute(0, 2, 1))
 
