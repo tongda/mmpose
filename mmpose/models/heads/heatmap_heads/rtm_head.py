@@ -12,7 +12,7 @@ from mmpose.registry import KEYPOINT_CODECS, MODELS
 from mmpose.utils.tensor_utils import to_numpy
 from mmpose.utils.typing import (ConfigType, InstanceList, OptConfigType,
                                  OptSampleList)
-from ...utils.rtmpose_block import SE, RTMBlock, ScaleNorm
+from ...utils.rtmpose_block import SE, RTMBlock, ScaleNorm, rope
 from ..base_head import BaseHead
 
 OptIntSeq = Optional[Sequence[int]]
@@ -222,8 +222,10 @@ class RTMHead(BaseHead):
         pred_y = self.mlp_y(feats)
 
         if self.use_coord_token:
-            coord_x_token = self.coord_x_token.repeat((feats.size(0), 1, 1))
-            coord_y_token = self.coord_y_token.repeat((feats.size(0), 1, 1))
+            coord_x_token = rope(self.coord_x_token, dim=1)
+            coord_y_token = rope(self.coord_y_token, dim=1)
+            coord_x_token = coord_x_token.repeat((feats.size(0), 1, 1))
+            coord_y_token = coord_y_token.repeat((feats.size(0), 1, 1))
 
             if self.use_cross_attn:
                 pred_x = self.decoder_x((pred_x, coord_x_token, coord_x_token))

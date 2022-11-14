@@ -7,6 +7,42 @@ import torch.nn.functional as F
 from mmcv.cnn.bricks import DropPath
 
 
+def rope(x, dim):
+    """
+    :param x: input tensor
+    :param dim: operation dimension
+    :return:
+    """
+    shape = x.shape
+    if isinstance(dim, int):
+        dim = [dim]
+
+    spatial_shape = [shape[i] for i in dim]
+    total_len = 1
+    for i in spatial_shape:
+        total_len *= i
+
+    position = torch.reshape(
+        torch.arange(total_len, dtype=torch.int, device=x.device),
+        spatial_shape)
+
+    for i in range(dim[-1] + 1, len(shape) - 1, 1):
+        position = torch.unsqueeze(position, dim=-1)
+
+    half_size = shape[-1] // 2
+    freq_seq = -torch.arange(
+        half_size, dtype=torch.int, device=x.device) / float(half_size)
+    inv_freq = 10000**-freq_seq
+
+    sinusoid = position[..., None] * inv_freq[None, None, :]
+
+    sin = torch.sin(sinusoid)
+    cos = torch.cos(sinusoid)
+    x1, x2 = torch.chunk(x, 2, dim=-1)
+
+    return torch.cat([x1 * cos - x2 * sin, x2 * cos + x1 * sin], dim=-1)
+
+
 class SE(nn.Module):
 
     def __init__(self, block):
@@ -142,41 +178,6 @@ class RTMBlock(nn.Module):
         if dropout_rate > 0.:
             self.dropout = nn.Dropout(dropout_rate)
 
-    def rope(self, x, dim):
-        """
-        :param x: input tensor
-        :param dim: operation dimension
-        :return:
-        """
-        shape = x.shape
-        if isinstance(dim, int):
-            dim = [dim]
-
-        spatial_shape = [shape[i] for i in dim]
-        total_len = 1
-        for i in spatial_shape:
-            total_len *= i
-
-        position = torch.reshape(
-            torch.arange(total_len, dtype=torch.int, device=x.device),
-            spatial_shape)
-
-        for i in range(dim[-1] + 1, len(shape) - 1, 1):
-            position = torch.unsqueeze(position, dim=-1)
-
-        half_size = shape[-1] // 2
-        freq_seq = -torch.arange(
-            half_size, dtype=torch.int, device=x.device) / float(half_size)
-        inv_freq = 10000**-freq_seq
-
-        sinusoid = position[..., None] * inv_freq[None, None, :]
-
-        sin = torch.sin(sinusoid)
-        cos = torch.cos(sinusoid)
-        x1, x2 = torch.chunk(x, 2, dim=-1)
-
-        return torch.cat([x1 * cos - x2 * sin, x2 * cos + x1 * sin], dim=-1)
-
     def rel_pos_bias(self, seq_len, k_len=None):
         if self.attn_type == 'self-attn':
             t = F.pad(self.w[:2 * seq_len - 1], [0, seq_len]).repeat(seq_len)
@@ -184,8 +185,8 @@ class RTMBlock(nn.Module):
             r = (2 * seq_len - 1) // 2
             t = t[..., r:-r]
         else:
-            a = self.rope(self.a.repeat(seq_len, 1), dim=0)
-            b = self.rope(self.b.repeat(k_len, 1), dim=0)
+            a = rope(self.a.repeat(seq_len, 1), dim=0)
+            b = rope(self.b.repeat(k_len, 1), dim=0)
             t = torch.bmm(a, b.permute(0, 2, 1))
         return t
 
@@ -223,7 +224,7 @@ class RTMBlock(nn.Module):
 
             base = base.unsqueeze(2) * self.gamma[None, None, :] + self.beta
 
-            base = self.rope(base, dim=1)
+            base = rope(base, dim=1)
 
             q, k = torch.unbind(base, dim=-2)
 
@@ -237,8 +238,8 @@ class RTMBlock(nn.Module):
             k = self.k_fc(k)
             v = self.v_fc(v)
 
-            q = self.rope(q, 1)
-            k = self.rope(k, 1)
+            q = rope(q, 1)
+            k = rope(k, 1)
 
         qk = torch.bmm(q, k.permute(0, 2, 1))
 
