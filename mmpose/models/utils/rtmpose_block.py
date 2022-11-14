@@ -154,6 +154,8 @@ class RTMBlock(nn.Module):
             self.v_fc = nn.Linear(in_token_dims, self.e, bias=bias)
 
         self.ln = ScaleNorm(in_token_dims, eps=eps)
+        # self.ln = nn.LayerNorm(in_token_dims)
+
         nn.init.xavier_uniform_(self.uv.weight)
 
         if act_fn == 'SiLU':

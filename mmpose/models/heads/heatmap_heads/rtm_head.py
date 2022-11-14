@@ -227,6 +227,10 @@ class RTMHead(BaseHead):
             coord_x_token = coord_x_token.repeat((feats.size(0), 1, 1))
             coord_y_token = coord_y_token.repeat((feats.size(0), 1, 1))
 
+            if self.training:
+                mid_x = torch.bmm(pred_x, coord_x_token.permute(0, 2, 1))
+                mid_y = torch.bmm(pred_y, coord_y_token.permute(0, 2, 1))
+
             if self.use_cross_attn:
                 pred_x = self.decoder_x((pred_x, coord_x_token, coord_x_token))
                 pred_y = self.decoder_y((pred_y, coord_y_token, coord_y_token))
@@ -236,6 +240,9 @@ class RTMHead(BaseHead):
 
             pred_x = torch.bmm(pred_x, coord_x_token.permute(0, 2, 1))
             pred_y = torch.bmm(pred_y, coord_y_token.permute(0, 2, 1))
+
+            if self.training:
+                return pred_x, pred_y, mid_x, mid_y
 
         return pred_x, pred_y
 
@@ -306,7 +313,8 @@ class RTMHead(BaseHead):
     ) -> dict:
         """Calculate losses from a batch of inputs and data samples."""
 
-        pred_x, pred_y = self.forward(feats)
+        # pred_x, pred_y = self.forward(feats)
+        pred_x, pred_y, mid_x, mid_y = self.forward(feats)
 
         gt_x = torch.cat([
             d.gt_instance_labels.keypoint_x_labels for d in batch_data_samples
@@ -330,6 +338,8 @@ class RTMHead(BaseHead):
         # calculate losses
         losses = dict()
         loss = self.loss_module(pred_simcc, gt_simcc, keypoint_weights)
+        loss += 0.2 * self.loss_module(
+            (mid_x, mid_y), gt_simcc, keypoint_weights)
 
         losses.update(loss_kpt=loss)
 
