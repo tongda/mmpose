@@ -122,7 +122,8 @@ class RTMBlock(nn.Module):
             shift_idx=[0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 5, 6, 11, 12, 13, 14],
             act_fn='SiLU',
             bias=False,
-            use_rel_bias=True):
+            use_rel_bias=True,
+            pos_enc=False):
 
         super(RTMBlock, self).__init__()
         self.s = s
@@ -131,6 +132,7 @@ class RTMBlock(nn.Module):
         self.use_rel_bias = use_rel_bias
         self.attn_type = attn_type
         self.shift_idx = shift_idx
+        self.pos_enc = pos_enc
         self.drop_path = DropPath(drop_path) \
             if drop_path > 0. else nn.Identity()
 
@@ -152,6 +154,8 @@ class RTMBlock(nn.Module):
             self.uv = nn.Linear(in_token_dims, self.e + self.s, bias=bias)
             self.k_fc = nn.Linear(in_token_dims, self.s, bias=bias)
             self.v_fc = nn.Linear(in_token_dims, self.e, bias=bias)
+            nn.init.xavier_uniform_(self.k_fc.weight)
+            nn.init.xavier_uniform_(self.v_fc.weight)
 
         self.ln = ScaleNorm(in_token_dims, eps=eps)
         # self.ln = nn.LayerNorm(in_token_dims)
@@ -225,8 +229,8 @@ class RTMBlock(nn.Module):
                 self.act_fn(uv), [self.e, self.e, self.s], dim=-1)
 
             base = base.unsqueeze(2) * self.gamma[None, None, :] + self.beta
-
-            base = rope(base, dim=1)
+            if self.pos_enc:
+                base = rope(base, dim=1)
 
             q, k = torch.unbind(base, dim=-2)
 
@@ -240,7 +244,8 @@ class RTMBlock(nn.Module):
             k = self.k_fc(k)
             v = self.v_fc(v)
 
-            q = rope(q, 1)
+            if self.pos_enc:
+                q = rope(q, 1)
             k = rope(k, 1)
 
         qk = torch.bmm(q, k.permute(0, 2, 1))

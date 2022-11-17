@@ -40,7 +40,11 @@ class RTMHead(BaseHead):
             use_rel_bias=False,
         ),
         use_coord_token: bool = False,
+        coord_pos_enc: bool = False,
+        flatten_pos_enc: bool = False,
         axis_align: bool = True,
+        align_block: str = 'gau',
+        aux_loss: float = 0.,
         num_self_attn: int = 1,
         use_cross_attn: bool = False,
         input_transform: str = 'select',
@@ -69,6 +73,9 @@ class RTMHead(BaseHead):
         self.num_self_attn = num_self_attn
         self.use_coord_token = use_coord_token
         self.use_cross_attn = use_cross_attn
+        self.aux_loss = aux_loss
+        self.coord_pos_enc = coord_pos_enc
+        self.flatten_pos_enc = flatten_pos_enc
 
         self.loss_module = MODELS.build(loss)
         if decoder is not None:
@@ -106,42 +113,64 @@ class RTMHead(BaseHead):
         W = int(self.input_size[0] * self.simcc_split_ratio)
         H = int(self.input_size[1] * self.simcc_split_ratio)
 
-        self_attn_module = [
-            RTMBlock(
-                self.out_channels,
-                gau_cfg.hidden_dims,
-                gau_cfg.hidden_dims,
-                s=gau_cfg.s,
-                dropout_rate=gau_cfg.dropout_rate,
-                drop_path=gau_cfg.drop_path,
-                shift=gau_cfg.shift_type if gau_cfg.shift else None,
-                act_fn=gau_cfg.act_fn,
-                use_rel_bias=gau_cfg.use_rel_bias)
-            for _ in range(self.num_self_attn)
-        ]
-        self.self_attn_module = nn.Sequential(*self_attn_module)
+        # self_attn_module = [
+        #     RTMBlock(
+        #         self.out_channels,
+        #         gau_cfg.hidden_dims,
+        #         gau_cfg.hidden_dims,
+        #         s=gau_cfg.s,
+        #         dropout_rate=gau_cfg.dropout_rate,
+        #         drop_path=gau_cfg.drop_path,
+        #         shift=gau_cfg.shift_type if gau_cfg.shift else None,
+        #         act_fn=gau_cfg.act_fn,
+        #         use_rel_bias=gau_cfg.use_rel_bias)
+        #     for _ in range(self.num_self_attn)
+        # ]
+        # self.self_attn_module = nn.Sequential(*self_attn_module)
 
         if axis_align:
-            block_x = RTMBlock(
-                self.out_channels,
-                gau_cfg.hidden_dims,
-                gau_cfg.hidden_dims,
-                s=gau_cfg.s,
-                dropout_rate=0.,
-                drop_path=0.,
-                shift=gau_cfg.shift_type if gau_cfg.shift else None,
-                act_fn=gau_cfg.act_fn,
-                use_rel_bias=gau_cfg.use_rel_bias)
-            block_y = RTMBlock(
-                self.out_channels,
-                gau_cfg.hidden_dims,
-                gau_cfg.hidden_dims,
-                s=gau_cfg.s,
-                dropout_rate=0.,
-                drop_path=0.,
-                shift=gau_cfg.shift_type if gau_cfg.shift else None,
-                act_fn=gau_cfg.act_fn,
-                use_rel_bias=gau_cfg.use_rel_bias)
+            if align_block == 'gau':
+                block_x = RTMBlock(
+                    self.out_channels,
+                    gau_cfg.hidden_dims,
+                    gau_cfg.hidden_dims,
+                    s=gau_cfg.s,
+                    dropout_rate=0.,
+                    drop_path=0.,
+                    shift=gau_cfg.shift_type if gau_cfg.shift else None,
+                    act_fn=gau_cfg.act_fn,
+                    use_rel_bias=gau_cfg.use_rel_bias)
+                block_y = RTMBlock(
+                    self.out_channels,
+                    gau_cfg.hidden_dims,
+                    gau_cfg.hidden_dims,
+                    s=gau_cfg.s,
+                    dropout_rate=0.,
+                    drop_path=0.,
+                    shift=gau_cfg.shift_type if gau_cfg.shift else None,
+                    act_fn=gau_cfg.act_fn,
+                    use_rel_bias=gau_cfg.use_rel_bias)
+            else:
+                block_x = nn.Sequential(
+                    ScaleNorm(gau_cfg.hidden_dims),
+                    nn.Linear(
+                        gau_cfg.hidden_dims,
+                        gau_cfg.hidden_dims // 4,
+                        bias=False), nn.ReLU(True),
+                    nn.Linear(
+                        gau_cfg.hidden_dims // 4,
+                        gau_cfg.hidden_dims,
+                        bias=False))
+                block_y = nn.Sequential(
+                    ScaleNorm(gau_cfg.hidden_dims),
+                    nn.Linear(
+                        gau_cfg.hidden_dims,
+                        gau_cfg.hidden_dims // 4,
+                        bias=False), nn.ReLU(True),
+                    nn.Linear(
+                        gau_cfg.hidden_dims // 4,
+                        gau_cfg.hidden_dims,
+                        bias=False))
             self.mlp_x = SE(block_x)
             self.mlp_y = SE(block_y)
         else:
@@ -168,32 +197,41 @@ class RTMHead(BaseHead):
 
         if use_coord_token:
             self.coord_x_token = nn.Parameter(
-                torch.randn((1, W, gau_cfg.hidden_dims)))
+                torch.rand((1, W, gau_cfg.hidden_dims)))
             self.coord_y_token = nn.Parameter(
-                torch.randn((1, H, gau_cfg.hidden_dims)))
+                torch.rand((1, H, gau_cfg.hidden_dims)))
 
-            self.decoder_x = RTMBlock(
-                self.out_channels,
-                gau_cfg.hidden_dims,
-                gau_cfg.hidden_dims,
-                s=gau_cfg.s,
-                dropout_rate=gau_cfg.dropout_rate,
-                drop_path=gau_cfg.drop_path,
-                attn_type='cross-attn' if use_cross_attn else 'self-attn',
-                shift=gau_cfg.shift_type if gau_cfg.shift else None,
-                act_fn=gau_cfg.act_fn,
-                use_rel_bias=gau_cfg.use_rel_bias)
-            self.decoder_y = RTMBlock(
-                self.out_channels,
-                gau_cfg.hidden_dims,
-                gau_cfg.hidden_dims,
-                s=gau_cfg.s,
-                dropout_rate=gau_cfg.dropout_rate,
-                drop_path=gau_cfg.drop_path,
-                attn_type='cross-attn' if use_cross_attn else 'self-attn',
-                shift=gau_cfg.shift_type if gau_cfg.shift else None,
-                act_fn=gau_cfg.act_fn,
-                use_rel_bias=gau_cfg.use_rel_bias)
+            decoder_x = [
+                RTMBlock(
+                    self.out_channels,
+                    gau_cfg.hidden_dims,
+                    gau_cfg.hidden_dims,
+                    s=gau_cfg.s,
+                    dropout_rate=gau_cfg.dropout_rate,
+                    drop_path=gau_cfg.drop_path,
+                    attn_type='cross-attn' if use_cross_attn else 'self-attn',
+                    shift=gau_cfg.shift_type if gau_cfg.shift else None,
+                    act_fn=gau_cfg.act_fn,
+                    use_rel_bias=gau_cfg.use_rel_bias)
+                for _ in range(num_self_attn)
+            ]
+            self.decoder_x = nn.ModuleList(decoder_x)
+
+            decoder_y = [
+                RTMBlock(
+                    self.out_channels,
+                    gau_cfg.hidden_dims,
+                    gau_cfg.hidden_dims,
+                    s=gau_cfg.s,
+                    dropout_rate=gau_cfg.dropout_rate,
+                    drop_path=gau_cfg.drop_path,
+                    attn_type='cross-attn' if use_cross_attn else 'self-attn',
+                    shift=gau_cfg.shift_type if gau_cfg.shift else None,
+                    act_fn=gau_cfg.act_fn,
+                    use_rel_bias=gau_cfg.use_rel_bias)
+                for _ in range(num_self_attn)
+            ]
+            self.decoder_y = nn.ModuleList(decoder_y)
 
     def forward(self, feats: Tuple[Tensor]) -> Tuple[Tensor, Tensor]:
         """Forward the network.
@@ -215,33 +253,43 @@ class RTMHead(BaseHead):
         if self.use_hilbert_flatten:
             feats = feats[:, :, self.hilbert_mapping]
 
+        if self.flatten_pos_enc:
+            feats = rope(feats, 1)
+
         feats = self.mlp(feats)  # -> B, K, hidden
-        feats = self.self_attn_module(feats)
+
+        # feats = self.self_attn_module(feats)
 
         pred_x = self.mlp_x(feats)
         pred_y = self.mlp_y(feats)
 
         if self.use_coord_token:
-            coord_x_token = rope(self.coord_x_token, dim=1)
-            coord_y_token = rope(self.coord_y_token, dim=1)
+            coord_x_token = self.coord_x_token
+            coord_y_token = self.coord_y_token
+            if self.coord_pos_enc:
+                coord_x_token = rope(coord_x_token, dim=1)
+                coord_y_token = rope(coord_y_token, dim=1)
             coord_x_token = coord_x_token.repeat((feats.size(0), 1, 1))
             coord_y_token = coord_y_token.repeat((feats.size(0), 1, 1))
 
-            if self.training:
+            if self.training and self.aux_loss > 0.:
                 mid_x = torch.bmm(pred_x, coord_x_token.permute(0, 2, 1))
                 mid_y = torch.bmm(pred_y, coord_y_token.permute(0, 2, 1))
 
-            if self.use_cross_attn:
-                pred_x = self.decoder_x((pred_x, coord_x_token, coord_x_token))
-                pred_y = self.decoder_y((pred_y, coord_y_token, coord_y_token))
-            else:
-                pred_x = self.decoder_x(pred_x)
-                pred_y = self.decoder_y(pred_y)
+            for i in range(self.num_self_attn):
+                if self.use_cross_attn:
+                    pred_x = self.decoder_x[i](
+                        (pred_x, coord_x_token, coord_x_token))
+                    pred_y = self.decoder_y[i](
+                        (pred_y, coord_y_token, coord_y_token))
+                else:
+                    pred_x = self.decoder_x[i](pred_x)
+                    pred_y = self.decoder_y[i](pred_y)
 
             pred_x = torch.bmm(pred_x, coord_x_token.permute(0, 2, 1))
             pred_y = torch.bmm(pred_y, coord_y_token.permute(0, 2, 1))
 
-            if self.training:
+            if self.training and self.aux_loss > 0.:
                 return pred_x, pred_y, mid_x, mid_y
 
         return pred_x, pred_y
@@ -313,8 +361,10 @@ class RTMHead(BaseHead):
     ) -> dict:
         """Calculate losses from a batch of inputs and data samples."""
 
-        # pred_x, pred_y = self.forward(feats)
-        pred_x, pred_y, mid_x, mid_y = self.forward(feats)
+        if self.use_coord_token and self.aux_loss > 0.:
+            pred_x, pred_y, mid_x, mid_y = self.forward(feats)
+        else:
+            pred_x, pred_y = self.forward(feats)
 
         gt_x = torch.cat([
             d.gt_instance_labels.keypoint_x_labels for d in batch_data_samples
@@ -338,8 +388,9 @@ class RTMHead(BaseHead):
         # calculate losses
         losses = dict()
         loss = self.loss_module(pred_simcc, gt_simcc, keypoint_weights)
-        loss += 0.2 * self.loss_module(
-            (mid_x, mid_y), gt_simcc, keypoint_weights)
+        if self.use_coord_token and self.aux_loss > 0.:
+            loss += self.aux_loss * self.loss_module(
+                (mid_x, mid_y), gt_simcc, keypoint_weights)
 
         losses.update(loss_kpt=loss)
 
