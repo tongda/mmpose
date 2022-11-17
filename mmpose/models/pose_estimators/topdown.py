@@ -109,7 +109,13 @@ class TopdownPoseEstimator(BasePoseEstimator):
         Returns:
             dict: A dictionary of losses.
         """
-        feats = self.extract_feat(inputs)
+        # feats = self.extract_feat(inputs)
+        if self.train_cfg.get('flip_training', False):
+            _feats = self.extract_feat(inputs)
+            _feats_flip = self.extract_feat(inputs.flip(-1))
+            feats = [_feats, _feats_flip]
+        else:
+            feats = self.extract_feat(inputs)
 
         losses = dict()
 
