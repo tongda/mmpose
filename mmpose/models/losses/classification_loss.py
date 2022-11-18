@@ -233,15 +233,19 @@ class DynamicKLDiscretLoss(nn.Module):
     """
 
     def __init__(self,
-                 dims=256,
+                 input_size=(384, 512),
                  beta=1.,
                  label_softmax=False,
                  use_target_weight=True):
         super(DynamicKLDiscretLoss, self).__init__()
         self.beta = beta
-        self.fc = nn.Sequential(
-            nn.Linear(dims // 4 + 1, dims // 8), nn.ReLU(),
-            nn.Linear(dims // 8, 1), nn.Sigmoid())
+        self.input_size = input_size
+        fc = [
+            nn.Sequential(
+                nn.Linear(size // 4 + 1, size // 8), nn.ReLU(),
+                nn.Linear(size // 8, 1), nn.Sigmoid()) for size in input_size
+        ]
+        self.fc = nn.ModuleList(fc)
         self.label_softmax = label_softmax
         self.use_target_weight = use_target_weight
 
@@ -252,7 +256,8 @@ class DynamicKLDiscretLoss(nn.Module):
         topk, _ = torch.topk(x, x.size(-1) // 4, dim=-1)  # B, K, 256
         mean = x.mean(-1, keepdim=True)
         feats = torch.cat([topk, mean], dim=-1)
-        beta = (self.fc(feats) + 1) * self.beta
+        beta = (self.fc[int(x.size(-1) == self.input_size[1])](feats) +
+                1) * self.beta
         return beta
 
     def criterion(self, dec_outs, labels):
