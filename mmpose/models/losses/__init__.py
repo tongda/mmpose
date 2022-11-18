@@ -1,5 +1,6 @@
 # Copyright (c) OpenMMLab. All rights reserved.
-from .classification_loss import (BCELoss, JSDiscretLoss, KLDiscretLoss,
+from .classification_loss import (BCELoss, DynamicKLDiscretLoss, JSDiscretLoss,
+                                  KLDiscretLoss, ScaleKLDiscretLoss,
                                   SimCCBalancedBCELoss)
 from .heatmap_loss import AdaptiveWingLoss
 from .loss_wrappers import MultipleLossWrapper
@@ -16,5 +17,5 @@ __all__ = [
     'MPJPELoss', 'MSELoss', 'L1Loss', 'BCELoss', 'BoneLoss',
     'SemiSupervisionLoss', 'SoftWingLoss', 'AdaptiveWingLoss', 'RLELoss',
     'KLDiscretLoss', 'MultipleLossWrapper', 'JSDiscretLoss',
-    'SimCCBalancedBCELoss'
+    'SimCCBalancedBCELoss', 'ScaleKLDiscretLoss', 'DynamicKLDiscretLoss'
 ]

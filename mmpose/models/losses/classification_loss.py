@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from mmpose.models.utils.rtmpose_block import Scale
 from mmpose.registry import MODELS
 
 
@@ -160,6 +161,142 @@ class KLDiscretLoss(nn.Module):
 
 
 @MODELS.register_module()
+class ScaleKLDiscretLoss(nn.Module):
+    """Discrete KL Divergence loss for SimCC with Gaussian Label Smoothing.
+
+    Modified from `the official implementation
+    <https://github.com/leeyegy/SimCC>`_.
+
+    Args:
+        use_target_weight (bool): Option to use weighted loss.
+            Different joint types may have different target weights.
+    """
+
+    def __init__(self, beta=1.0, label_softmax=False, use_target_weight=True):
+        super(ScaleKLDiscretLoss, self).__init__()
+        self.beta = Scale(1, init_value=beta)
+        self.label_softmax = label_softmax
+        self.use_target_weight = use_target_weight
+
+        self.log_softmax = nn.LogSoftmax(dim=1)
+        self.kl_loss = nn.KLDivLoss(reduction='none')
+
+    def criterion(self, dec_outs, labels):
+        scores = self.log_softmax(self.beta(dec_outs))
+        if self.label_softmax:
+            labels = F.softmax(self.beta(labels), dim=1)
+        loss = torch.mean(self.kl_loss(scores, labels), dim=1)
+        return loss
+
+    def forward(self, pred_simcc, gt_simcc, target_weight):
+        """Forward function.
+
+        Args:
+            pred_simcc (Tuple[Tensor, Tensor]): _description_
+            gt_simcc (Tuple[Tensor, Tensor]): _description_
+            target_weight (Tensor): _description_
+        """
+        output_x, output_y = pred_simcc
+        target_x, target_y = gt_simcc
+        num_joints = output_x.size(1)
+        loss = 0
+
+        for idx in range(num_joints):
+            coord_x_pred = output_x[:, idx].squeeze()
+            coord_y_pred = output_y[:, idx].squeeze()
+            coord_x_gt = target_x[:, idx].squeeze()
+            coord_y_gt = target_y[:, idx].squeeze()
+
+            if self.use_target_weight:
+                weight = target_weight[:, idx].squeeze()
+            else:
+                weight = 1.
+
+            loss += (
+                self.criterion(coord_x_pred, coord_x_gt).mul(weight).sum())
+            loss += (
+                self.criterion(coord_y_pred, coord_y_gt).mul(weight).sum())
+
+        return loss / num_joints
+
+
+@MODELS.register_module()
+class DynamicKLDiscretLoss(nn.Module):
+    """Discrete KL Divergence loss for SimCC with Gaussian Label Smoothing.
+
+    Modified from `the official implementation
+    <https://github.com/leeyegy/SimCC>`_.
+
+    Args:
+        use_target_weight (bool): Option to use weighted loss.
+            Different joint types may have different target weights.
+    """
+
+    def __init__(self,
+                 dims=256,
+                 beta=1.,
+                 label_softmax=False,
+                 use_target_weight=True):
+        super(DynamicKLDiscretLoss, self).__init__()
+        self.beta = beta
+        self.fc = nn.Sequential(
+            nn.Linear(dims // 4 + 1, dims // 8), nn.ReLU(),
+            nn.Linear(dims // 8, 1), nn.Sigmoid())
+        self.label_softmax = label_softmax
+        self.use_target_weight = use_target_weight
+
+        self.log_softmax = nn.LogSoftmax(dim=1)
+        self.kl_loss = nn.KLDivLoss(reduction='none')
+
+    def calc_beta(self, x):
+        topk, _ = torch.topk(x, x.size(-1) // 4, dim=-1)  # B, K, 256
+        mean = x.mean(-1, keepdim=True)
+        feats = torch.cat([topk, mean], dim=-1)
+        beta = (self.fc(feats) + 1) * self.beta
+        return beta
+
+    def criterion(self, dec_outs, labels):
+        beta1 = self.calc_beta(dec_outs)
+        scores = self.log_softmax(dec_outs * beta1)
+        if self.label_softmax:
+            beta2 = self.calc_beta(labels)
+            labels = F.softmax(labels * beta2, dim=1)
+        loss = torch.mean(self.kl_loss(scores, labels), dim=1)
+        return loss
+
+    def forward(self, pred_simcc, gt_simcc, target_weight):
+        """Forward function.
+
+        Args:
+            pred_simcc (Tuple[Tensor, Tensor]): _description_
+            gt_simcc (Tuple[Tensor, Tensor]): _description_
+            target_weight (Tensor): _description_
+        """
+        output_x, output_y = pred_simcc
+        target_x, target_y = gt_simcc
+        num_joints = output_x.size(1)
+        loss = 0
+
+        for idx in range(num_joints):
+            coord_x_pred = output_x[:, idx].squeeze()
+            coord_y_pred = output_y[:, idx].squeeze()
+            coord_x_gt = target_x[:, idx].squeeze()
+            coord_y_gt = target_y[:, idx].squeeze()
+
+            if self.use_target_weight:
+                weight = target_weight[:, idx].squeeze()
+            else:
+                weight = 1.
+
+            loss += (
+                self.criterion(coord_x_pred, coord_x_gt).mul(weight).sum())
+            loss += (
+                self.criterion(coord_y_pred, coord_y_gt).mul(weight).sum())
+
+        return loss / num_joints
+
+
+@MODELS.register_module()
 class SimCCBalancedBCELoss(nn.Module):
     """"""
 
@@ -181,7 +318,7 @@ class SimCCBalancedBCELoss(nn.Module):
             https://kexue.fm/archives/9064 。
         """
         eps = 1e-7
-        _infinity = 1e12
+        _infinity = 1e6
         y_mask = y_pred > -_infinity / 10
         n_mask = (y_true < 1 - eps) & y_mask
         p_mask = (y_true > eps) & y_mask
@@ -225,4 +362,4 @@ class SimCCBalancedBCELoss(nn.Module):
             loss += (
                 self.criterion(coord_y_pred, coord_y_gt).mul(weight).sum())
 
-        return loss / num_joints
+        return loss / num_joints / output_x.size(0)

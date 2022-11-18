@@ -19,7 +19,7 @@ OptIntSeq = Optional[Sequence[int]]
 
 
 @MODELS.register_module()
-class RTMHead2(BaseHead):
+class RTMHead3(BaseHead):
 
     def __init__(
         self,
@@ -361,17 +361,8 @@ class RTMHead2(BaseHead):
     ) -> dict:
         """Calculate losses from a batch of inputs and data samples."""
 
-        if train_cfg.get('flip_training', False):
-            # TTA: flip test -> feats = [orig, flipped]
-            assert isinstance(feats, list) and len(feats) == 2
-            flip_indices = batch_data_samples[0].metainfo['flip_indices']
-            _feats, _feats_flip = feats
-
-            pred_x, pred_y = self.forward(_feats)
-
-            pred_x_flip, pred_y_flip = self.forward(_feats_flip)
-            pred_x_flip, pred_y_flip = flip_vectors(
-                pred_x_flip, pred_y_flip, flip_indices=flip_indices)
+        if self.use_coord_token and self.aux_loss > 0.:
+            pred_x, pred_y, mid_x, mid_y = self.forward(feats)
         else:
             pred_x, pred_y = self.forward(feats)
 
@@ -397,12 +388,9 @@ class RTMHead2(BaseHead):
         # calculate losses
         losses = dict()
         loss = self.loss_module(pred_simcc, gt_simcc, keypoint_weights)
-
-        if train_cfg.get('flip_training', False):
-            loss += 0.5 * self.loss_module(
-                pred_simcc, (pred_x_flip, pred_y_flip), keypoint_weights)
-            loss += 0.5 * self.loss_module(
-                (pred_x_flip, pred_y_flip), pred_simcc, keypoint_weights)
+        if self.use_coord_token and self.aux_loss > 0.:
+            loss += self.aux_loss * self.loss_module(
+                (mid_x, mid_y), gt_simcc, keypoint_weights)
 
         losses.update(loss_kpt=loss)
 
