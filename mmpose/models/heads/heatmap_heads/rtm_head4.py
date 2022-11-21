@@ -12,14 +12,14 @@ from mmpose.registry import KEYPOINT_CODECS, MODELS
 from mmpose.utils.tensor_utils import to_numpy
 from mmpose.utils.typing import (ConfigType, InstanceList, OptConfigType,
                                  OptSampleList)
-from ...utils.rtmpose_block import SE, RTMBlock, ScaleNorm, rope
+from ...utils.rtmpose_block import RTMBlock, ScaleNorm, rope
 from ..base_head import BaseHead
 
 OptIntSeq = Optional[Sequence[int]]
 
 
 @MODELS.register_module()
-class RTMHead2(BaseHead):
+class RTMHead4(BaseHead):
 
     def __init__(
         self,
@@ -115,51 +115,7 @@ class RTMHead2(BaseHead):
         W = int(self.input_size[0] * self.simcc_split_ratio)
         H = int(self.input_size[1] * self.simcc_split_ratio)
 
-        if align_block == 'gau':
-            block_x = RTMBlock(
-                self.out_channels,
-                gau_cfg.hidden_dims,
-                gau_cfg.hidden_dims,
-                s=gau_cfg.s,
-                dropout_rate=0.,
-                drop_path=0.,
-                shift=gau_cfg.shift_type if gau_cfg.shift else None,
-                act_fn=gau_cfg.act_fn,
-                use_rel_bias=gau_cfg.use_rel_bias)
-            block_y = RTMBlock(
-                self.out_channels,
-                gau_cfg.hidden_dims,
-                gau_cfg.hidden_dims,
-                s=gau_cfg.s,
-                dropout_rate=0.,
-                drop_path=0.,
-                shift=gau_cfg.shift_type if gau_cfg.shift else None,
-                act_fn=gau_cfg.act_fn,
-                use_rel_bias=gau_cfg.use_rel_bias)
-        else:
-            block_x = nn.Sequential(
-                ScaleNorm(gau_cfg.hidden_dims),
-                nn.Linear(
-                    gau_cfg.hidden_dims, gau_cfg.hidden_dims // 4, bias=False),
-                nn.ReLU(True),
-                nn.Linear(
-                    gau_cfg.hidden_dims // 4, gau_cfg.hidden_dims, bias=False))
-            block_y = nn.Sequential(
-                ScaleNorm(gau_cfg.hidden_dims),
-                nn.Linear(
-                    gau_cfg.hidden_dims, gau_cfg.hidden_dims // 4, bias=False),
-                nn.ReLU(True),
-                nn.Linear(
-                    gau_cfg.hidden_dims // 4, gau_cfg.hidden_dims, bias=False))
-
-        if axis_align:
-            self.split_x = SE(block_x)
-            self.split_y = SE(block_y)
-        else:
-            self.split_x = block_x
-            self.split_y = block_y
-
-        decoder_x = [
+        decoder = [
             RTMBlock(
                 self.out_channels,
                 gau_cfg.hidden_dims,
@@ -173,23 +129,7 @@ class RTMHead2(BaseHead):
                 use_rel_bias=gau_cfg.use_rel_bias)
             for _ in range(num_self_attn)
         ]
-        self.decoder_x = nn.ModuleList(decoder_x)
-
-        decoder_y = [
-            RTMBlock(
-                self.out_channels,
-                gau_cfg.hidden_dims,
-                gau_cfg.hidden_dims,
-                s=gau_cfg.s,
-                dropout_rate=gau_cfg.dropout_rate,
-                drop_path=gau_cfg.drop_path,
-                attn_type='cross-attn' if use_cross_attn else 'self-attn',
-                shift=gau_cfg.shift_type if gau_cfg.shift else None,
-                act_fn=gau_cfg.act_fn,
-                use_rel_bias=gau_cfg.use_rel_bias)
-            for _ in range(num_self_attn)
-        ]
-        self.decoder_y = nn.ModuleList(decoder_y)
+        self.decoder = nn.ModuleList(decoder)
 
         self.cls_x = nn.Sequential(
             ScaleNorm(gau_cfg.hidden_dims), nn.ReLU(),
@@ -223,15 +163,11 @@ class RTMHead2(BaseHead):
 
         feats = self.mlp(feats)  # -> B, K, hidden
 
-        pred_x = self.split_x(feats)
-        pred_y = self.split_y(feats)
-
         for i in range(self.num_self_attn):
-            pred_x = self.decoder_x[i](pred_x)
-            pred_y = self.decoder_y[i](pred_y)
+            feats = self.decoder[i](feats)
 
-        pred_x = self.cls_x(pred_x)
-        pred_y = self.cls_y(pred_y)
+        pred_x = self.cls_x(feats)
+        pred_y = self.cls_y(feats)
 
         return pred_x, pred_y
 
