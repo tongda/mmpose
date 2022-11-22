@@ -115,7 +115,7 @@ class RTMHead4(BaseHead):
         W = int(self.input_size[0] * self.simcc_split_ratio)
         H = int(self.input_size[1] * self.simcc_split_ratio)
 
-        decoder = [
+        self_attn = [
             RTMBlock(
                 self.out_channels,
                 gau_cfg.hidden_dims,
@@ -129,14 +129,10 @@ class RTMHead4(BaseHead):
                 use_rel_bias=gau_cfg.use_rel_bias)
             for _ in range(num_self_attn)
         ]
-        self.decoder = nn.ModuleList(decoder)
+        self.self_attn = nn.ModuleList(self_attn)
 
-        self.cls_x = nn.Sequential(
-            ScaleNorm(gau_cfg.hidden_dims), nn.ReLU(),
-            nn.Linear(gau_cfg.hidden_dims, W, bias=False))
-        self.cls_y = nn.Sequential(
-            ScaleNorm(gau_cfg.hidden_dims), nn.ReLU(),
-            nn.Linear(gau_cfg.hidden_dims, H, bias=False))
+        self.cls_x = nn.Linear(gau_cfg.hidden_dims, W, bias=False)
+        self.cls_y = nn.Linear(gau_cfg.hidden_dims, H, bias=False)
 
     def forward(self, feats: Tuple[Tensor]) -> Tuple[Tensor, Tensor]:
         """Forward the network.
@@ -164,7 +160,7 @@ class RTMHead4(BaseHead):
         feats = self.mlp(feats)  # -> B, K, hidden
 
         for i in range(self.num_self_attn):
-            feats = self.decoder[i](feats)
+            feats = self.self_attn[i](feats)
 
         pred_x = self.cls_x(feats)
         pred_y = self.cls_y(feats)

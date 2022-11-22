@@ -191,12 +191,8 @@ class RTMHead2(BaseHead):
         ]
         self.decoder_y = nn.ModuleList(decoder_y)
 
-        self.cls_x = nn.Sequential(
-            ScaleNorm(gau_cfg.hidden_dims), nn.ReLU(),
-            nn.Linear(gau_cfg.hidden_dims, W, bias=False))
-        self.cls_y = nn.Sequential(
-            ScaleNorm(gau_cfg.hidden_dims), nn.ReLU(),
-            nn.Linear(gau_cfg.hidden_dims, H, bias=False))
+        self.cls_x = nn.Linear(gau_cfg.hidden_dims, W, bias=False)
+        self.cls_y = nn.Linear(gau_cfg.hidden_dims, H, bias=False)
 
     def forward(self, feats: Tuple[Tensor]) -> Tuple[Tensor, Tensor]:
         """Forward the network.
