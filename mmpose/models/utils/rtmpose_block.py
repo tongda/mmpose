@@ -107,23 +107,21 @@ class StarReLU(nn.Module):
 
 class RTMBlock(nn.Module):
 
-    def __init__(
-            self,
-            num_token,
-            in_token_dims,
-            out_token_dims,
-            expansion_factor=2,
-            s=128,
-            eps=1e-5,
-            dropout_rate=0.,
-            drop_path=0.,
-            attn_type='self-attn',
-            shift=None,
-            shift_idx=[0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 5, 6, 11, 12, 13, 14],
-            act_fn='SiLU',
-            bias=False,
-            use_rel_bias=True,
-            pos_enc=False):
+    def __init__(self,
+                 num_token,
+                 in_token_dims,
+                 out_token_dims,
+                 expansion_factor=2,
+                 s=128,
+                 eps=1e-5,
+                 dropout_rate=0.,
+                 drop_path=0.,
+                 attn_type='self-attn',
+                 shift=None,
+                 act_fn='SiLU',
+                 bias=False,
+                 use_rel_bias=True,
+                 pos_enc=False):
 
         super(RTMBlock, self).__init__()
         self.s = s
@@ -131,7 +129,6 @@ class RTMBlock(nn.Module):
         self.shift = shift
         self.use_rel_bias = use_rel_bias
         self.attn_type = attn_type
-        self.shift_idx = shift_idx
         self.pos_enc = pos_enc
         self.drop_path = DropPath(drop_path) \
             if drop_path > 0. else nn.Identity()
@@ -158,7 +155,6 @@ class RTMBlock(nn.Module):
             nn.init.xavier_uniform_(self.v_fc.weight)
 
         self.ln = ScaleNorm(in_token_dims, eps=eps)
-        # self.ln = nn.LayerNorm(in_token_dims)
 
         nn.init.xavier_uniform_(self.uv.weight)
 
@@ -174,8 +170,6 @@ class RTMBlock(nn.Module):
             self.res_scale = Scale(in_token_dims)
         else:
             self.shortcut = False
-
-        # self.layer_scale = Scale(out_token_dims)
 
         self.sqrt_s = math.sqrt(s)
 
@@ -198,11 +192,7 @@ class RTMBlock(nn.Module):
 
     def shift_mixing(self, x):
         x_shift, x_pass = x.chunk(2, dim=-1)
-        if self.shift == 'structure' and len(self.shift_idx) == x.size(1):
-            x_shift = x_shift[:, self.shift_idx, :]
-        else:
-            x_shift = F.pad(x_shift, (0, 0, 1, -1), value=0.)
-
+        x_shift = F.pad(x_shift, (0, 0, 1, -1), value=0.)
         x = torch.cat((x_shift, x_pass), dim=-1)
         return x
 
@@ -237,7 +227,7 @@ class RTMBlock(nn.Module):
         else:
             u, q = torch.split(self.act_fn(uv), [self.e, self.s], dim=-1)
 
-            if self.shift is not None:
+            if self.shift:
                 k = self.shift_mixing(k)
                 v = self.shift_mixing(v)
 
@@ -246,7 +236,7 @@ class RTMBlock(nn.Module):
 
             if self.pos_enc:
                 q = rope(q, 1)
-            k = rope(k, 1)
+                k = rope(k, 1)
 
         qk = torch.bmm(q, k.permute(0, 2, 1))
 
@@ -274,10 +264,6 @@ class RTMBlock(nn.Module):
             else:
                 res_shortcut = x
             main_branch = self.drop_path(self._forward(x))
-            # return self.res_scale(res_shortcut)
-            # + self.layer_scale(main_branch)
             return self.res_scale(res_shortcut) + main_branch
-            # return res_shortcut + main_branch
         else:
-            # return self.layer_scale(self.drop_path(self._forward(x)))
             return self.drop_path(self._forward(x))
