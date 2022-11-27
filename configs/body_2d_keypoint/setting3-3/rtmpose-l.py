@@ -5,8 +5,8 @@ max_epochs = 210
 stage2_num_epochs = 30
 base_lr = 4e-3
 
-train_cfg = dict(max_epochs=max_epochs, val_interval=10)
-randomness = dict(seed=3407)
+train_cfg = dict(max_epochs=210, val_interval=10)
+randomness = dict(seed=21)
 
 # optimizer
 optim_wrapper = dict(
@@ -27,10 +27,10 @@ param_scheduler = [
     dict(
         # use cosine lr from 150 to 300 epoch
         type='CosineAnnealingLR',
-        eta_min=base_lr * 0.05,
-        begin=max_epochs // 2,
+        eta_min=base_lr * 0.02,
+        begin=max_epochs // 3,
         end=max_epochs,
-        T_max=2 * max_epochs // 2,
+        T_max=2 * max_epochs // 3,
         by_epoch=True,
         convert_to_iter_based=True),
 ]
@@ -40,45 +40,12 @@ auto_scale_lr = dict(base_batch_size=1024)
 
 # codec settings
 codec = dict(
-    type='UDPHeatmap', input_size=(192, 256), heatmap_size=(48, 64), sigma=2)
-
-# keypoint mappings
-keypoint_mapping_coco = [
-    (0, 0),
-    (1, 1),
-    (2, 2),
-    (3, 3),
-    (4, 4),
-    (5, 5),
-    (6, 6),
-    (7, 7),
-    (8, 8),
-    (9, 9),
-    (10, 10),
-    (11, 11),
-    (12, 12),
-    (13, 13),
-    (14, 14),
-    (15, 15),
-    (16, 16),
-]
-
-keypoint_mapping_aic = [
-    (0, 6),
-    (1, 8),
-    (2, 10),
-    (3, 5),
-    (4, 7),
-    (5, 9),
-    (6, 12),
-    (7, 14),
-    (8, 16),
-    (9, 11),
-    (10, 13),
-    (11, 15),
-    (12, 17),
-    (13, 18),
-]
+    type='SimCCLabel',
+    input_size=(192, 256),
+    sigma=(4.9, 5.66),
+    simcc_split_ratio=2.0,
+    normalize=False,
+    use_dark=False)
 
 # model settings
 model = dict(
@@ -99,34 +66,47 @@ model = dict(
         channel_attention=True,
         norm_cfg=dict(type='SyncBN'),
         act_cfg=dict(type='SiLU'),
-        # init_cfg=dict(
-        #     type='Pretrained',
-        #     prefix='backbone.',
-        #     checkpoint='/mnt/petrelfs/jiangtao/pretrained_models/'
-        #     'cspnext-m_coco_256x192.pth')
-    ),
+        init_cfg=dict(
+            type='Pretrained',
+            prefix='backbone.',
+            checkpoint='/mnt/petrelfs/jiangtao/pretrained_models/'
+            'cspnext-l_coco-aic_256x192.pth')),
     head=dict(
-        type='HeatmapHead',
+        type='RTMHead',
         in_channels=1024,
-        out_channels=19,
-        loss=dict(type='KeypointMSELoss', use_target_weight=True),
+        out_channels=17,
+        input_size=codec['input_size'],
+        in_featuremap_size=(6, 8),
+        simcc_split_ratio=codec['simcc_split_ratio'],
+        final_layer_kernel_size=3,
+        gau_cfg=dict(
+            hidden_dims=256,
+            s=128,
+            shift=False,
+            dropout_rate=0.,
+            drop_path=0.,
+            act_fn='SiLU',
+            use_rel_bias=False,
+        ),
+        num_self_attn=1,
+        loss=dict(
+            type='KLDiscretLoss',
+            use_target_weight=True,
+            beta=10.,
+            label_softmax=True),
         decoder=codec),
-    test_cfg=dict(
-        flip_test=False,
-        output_keypoint_indices=[
-            target for _, target in keypoint_mapping_coco
-        ]))
+    test_cfg=dict(flip_test=False, ))
 
 # base dataset settings
 dataset_type = 'CocoDataset'
 data_mode = 'topdown'
-data_root = 'data/'
+data_root = 'data/coco/'
 
 file_client_args = dict(
     backend='petrel',
     path_mapping=dict({
-        f'{data_root}': 's3://openmmlab/datasets/',
-        f'{data_root}': 's3://openmmlab/datasets/'
+        f'{data_root}': 's3://openmmlab/datasets/detection/coco/',
+        f'{data_root}': 's3://openmmlab/datasets/detection/coco/'
     }))
 
 # pipelines
@@ -137,7 +117,7 @@ train_pipeline = [
     dict(type='RandomHalfBody'),
     dict(
         type='RandomBBoxTransform', scale_factor=[0.5, 1.5], rotate_factor=80),
-    dict(type='TopdownAffine', input_size=codec['input_size'], use_udp=True),
+    dict(type='TopdownAffine', input_size=codec['input_size']),
     # dict(type='PhotometricDistortion'),
     dict(type='mmdet.YOLOXHSVRandomAug'),
     dict(
@@ -147,15 +127,15 @@ train_pipeline = [
             dict(type='MedianBlur', p=0.1),
             # dict(type='ToGray', p=0.01),
             # dict(type='CLAHE', p=0.01),
-            # dict(
-            #     type='CoarseDropout',
-            #     max_holes=1,
-            #     max_height=0.4,
-            #     max_width=0.4,
-            #     min_holes=1,
-            #     min_height=0.2,
-            #     min_width=0.2,
-            #     p=0.7),
+            dict(
+                type='CoarseDropout',
+                max_holes=1,
+                max_height=0.4,
+                max_width=0.4,
+                min_holes=1,
+                min_height=0.2,
+                min_width=0.2,
+                p=1.),
         ]),
     dict(type='GenerateTarget', encoder=codec),
     dict(type='PackPoseInputs')
@@ -163,7 +143,7 @@ train_pipeline = [
 val_pipeline = [
     dict(type='LoadImage', file_client_args=file_client_args),
     dict(type='GetBBoxCenterScale'),
-    dict(type='TopdownAffine', input_size=codec['input_size'], use_udp=True),
+    dict(type='TopdownAffine', input_size=codec['input_size']),
     dict(type='PackPoseInputs')
 ]
 
@@ -176,7 +156,7 @@ train_pipeline_stage2 = [
         type='RandomBBoxTransform',
         scale_factor=[0.75, 1.25],
         rotate_factor=60),
-    dict(type='TopdownAffine', input_size=codec['input_size'], use_udp=True),
+    dict(type='TopdownAffine', input_size=codec['input_size']),
     dict(type='mmdet.YOLOXHSVRandomAug'),
     dict(
         type='Albumentation',
@@ -206,12 +186,7 @@ dataset_coco = dict(
     data_mode=data_mode,
     ann_file='coco/annotations/person_keypoints_train2017.json',
     data_prefix=dict(img='detection/coco/train2017/'),
-    pipeline=[
-        dict(
-            type='KeypointConverter',
-            num_keypoints=19,
-            mapping=keypoint_mapping_coco)
-    ],
+    pipeline=[],
 )
 
 dataset_aic = dict(
@@ -224,8 +199,21 @@ dataset_aic = dict(
     pipeline=[
         dict(
             type='KeypointConverter',
-            num_keypoints=19,
-            mapping=keypoint_mapping_aic)
+            num_keypoints=17,
+            mapping=[
+                (0, 6),
+                (1, 8),
+                (2, 10),
+                (3, 5),
+                (4, 7),
+                (5, 9),
+                (6, 12),
+                (7, 14),
+                (8, 16),
+                (9, 11),
+                (10, 13),
+                (11, 15),
+            ])
     ],
 )
 
@@ -237,7 +225,7 @@ train_dataloader = dict(
     sampler=dict(type='DefaultSampler', shuffle=True),
     dataset=dict(
         type='CombinedDataset',
-        metainfo=dict(from_file='configs/_base_/datasets/coco_aic.py'),
+        metainfo=dict(from_file='configs/_base_/datasets/coco.py'),
         datasets=[dataset_coco, dataset_aic],
         pipeline=train_pipeline,
         test_mode=False,
@@ -252,10 +240,10 @@ val_dataloader = dict(
         type=dataset_type,
         data_root=data_root,
         data_mode=data_mode,
-        ann_file='coco/annotations/person_keypoints_val2017.json',
-        # bbox_file='data/coco/person_detection_results/'
-        # 'COCO_val2017_detections_AP_H_56_person.json',
-        data_prefix=dict(img='detection/coco/val2017/'),
+        ann_file='annotations/person_keypoints_val2017.json',
+        bbox_file='data/coco/person_detection_results/'
+        'COCO_val2017_detections_AP_H_56_person.json',
+        data_prefix=dict(img='val2017/'),
         test_mode=True,
         pipeline=val_pipeline,
     ))
@@ -281,5 +269,5 @@ custom_hooks = [
 # evaluators
 val_evaluator = dict(
     type='CocoMetric',
-    ann_file=data_root + 'coco/annotations/person_keypoints_val2017.json')
+    ann_file=data_root + 'annotations/person_keypoints_val2017.json')
 test_evaluator = val_evaluator
