@@ -73,11 +73,11 @@ class SimCCLabel(BaseKeypointCodec):
         self.normalize = normalize
         self.use_dark = use_dark
 
-        if self.smoothing_type not in {'gaussian', 'standard'}:
+        if self.smoothing_type not in {'gaussian', 'standard', 'ordinal'}:
             raise ValueError(
                 f'{self.__class__.__name__} got invalid `smoothing_type` value'
                 f'{self.smoothing_type}. Should be one of '
-                '{"gaussian", "standard"}')
+                '{"gaussian", "standard", "ordinal"}')
 
         if self.smoothing_type == 'gaussian' and self.label_smooth_weight > 0:
             raise ValueError('Attribute `label_smooth_weight` is only '
@@ -120,6 +120,9 @@ class SimCCLabel(BaseKeypointCodec):
                 keypoints, keypoints_visible)
         elif self.smoothing_type == 'standard':
             x_labels, y_labels, keypoint_weights = self._generate_standard(
+                keypoints, keypoints_visible)
+        elif self.smoothing_type == 'ordinal':
+            x_labels, y_labels, keypoint_weights = self._generate_ordinal(
                 keypoints, keypoints_visible)
         else:
             raise ValueError(
@@ -281,5 +284,42 @@ class SimCCLabel(BaseKeypointCodec):
             norm_value = self.sigma * np.sqrt(np.pi * 2)
             target_x /= norm_value[0]
             target_y /= norm_value[1]
+
+        return target_x, target_y, keypoint_weights
+
+    def _generate_ordinal(
+        self,
+        keypoints: np.ndarray,
+        keypoints_visible: Optional[np.ndarray] = None
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Encoding keypoints into SimCC labels with Gaussian Label Smoothing
+        strategy."""
+
+        N, K, _ = keypoints.shape
+        w, h = self.input_size
+        W = np.around(w * self.simcc_split_ratio).astype(int)
+        H = np.around(h * self.simcc_split_ratio).astype(int)
+
+        keypoints_split, keypoint_weights = self._map_coordinates(
+            keypoints, keypoints_visible)
+
+        target_x = np.zeros((N, K, W), dtype=np.float32)
+        target_y = np.zeros((N, K, H), dtype=np.float32)
+
+        # xy grid
+        x = np.arange(0, W, 1, dtype=np.float32)
+        y = np.arange(0, H, 1, dtype=np.float32)
+
+        for n, k in product(range(N), range(K)):
+            # skip unlabled keypoints
+            if keypoints_visible[n, k] < 0.5:
+                continue
+
+            mu = keypoints_split[n, k]
+
+            mu_x, mu_y = mu
+
+            target_x[n, k] = -(np.log(x) - np.log(mu_x))**2
+            target_y[n, k] = -(np.log(y) - np.log(mu_y))**2
 
         return target_x, target_y, keypoint_weights
