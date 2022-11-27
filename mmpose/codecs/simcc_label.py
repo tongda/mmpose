@@ -319,7 +319,12 @@ class SimCCLabel(BaseKeypointCodec):
 
             mu_x, mu_y = mu
 
-            target_x[n, k] = -(np.log(x) - np.log(mu_x))**2
-            target_y[n, k] = -(np.log(y) - np.log(mu_y))**2
+            target_x[n, k] = np.exp(-abs(x - mu_x) / (self.sigma[0]))
+            target_y[n, k] = np.exp(-abs(y - mu_y) / (self.sigma[1]))
+
+        if self.normalize:
+            norm_value = self.sigma * 2
+            target_x /= norm_value[0]
+            target_y /= norm_value[1]
 
         return target_x, target_y, keypoint_weights

@@ -10,6 +10,136 @@ from ..utils.realnvp import RealNVP
 
 
 @MODELS.register_module()
+class RLEKLLoss(nn.Module):
+    """RLE Loss.
+
+    `Human Pose Regression With Residual Log-Likelihood Estimation
+    arXiv: <https://arxiv.org/abs/2107.11291>`_.
+
+    Code is modified from `the official implementation
+    <https://github.com/Jeff-sjtu/res-loglikelihood-regression>`_.
+
+    Args:
+        use_target_weight (bool): Option to use weighted loss.
+            Different joint types may have different target weights.
+        size_average (bool): Option to average the loss by the batch_size.
+        residual (bool): Option to add L1 loss and let the flow
+            learn the residual error distribution.
+        q_dis (string): Option for the identity Q(error) distribution,
+            Options: "laplace" or "gaussian"
+    """
+
+    def __init__(self,
+                 use_target_weight=False,
+                 size_average=True,
+                 residual=True,
+                 q_distribution='laplace'):
+        super(RLEKLLoss, self).__init__()
+        self.size_average = size_average
+        self.use_target_weight = use_target_weight
+        self.residual = residual
+        self.q_distribution = q_distribution
+
+        self.flow_model = RealNVP()
+
+    def gen_gt_simcc(self, sigma, target, W, H):
+        target *= (W, H)
+        x = torch.arange(0, W, 1, dtype=torch.float32)
+        y = torch.arange(0, H, 1, dtype=torch.float32)
+        x = (x - target[0]) / W
+        y = (y - target[1]) / H
+        grid = torch.stack(torch.meshgrid(x, y), dim=-1)
+        grid = grid.reshape(-1, 2) / sigma
+        distribution = self.flow_model.log_prob(grid).exp().reshape(W, H)
+        target_x = distribution.sum(dim=1)
+        target_y = distribution.sum(dim=0)
+        return target_x, target_y
+
+    def forward(self, pred_simcc, pred, sigma, target, target_weight=None):
+
+        output_x, output_y = pred_simcc
+        num_joints = output_x.size(1)
+
+        loss = self.rle_forward(pred, sigma, target, target_weight)
+
+        x_pred, y_pred, x_gt, y_gt, w = [], [], [], [], []
+        for b in range(output_x.size(0)):
+            for idx in range(num_joints):
+                coord_x_pred = output_x[b, idx].squeeze()
+                coord_y_pred = output_y[b, idx].squeeze()
+                coord_x_gt, coord_y_gt = self.gen_gt_simcc(
+                    sigma[b, idx], target[b, idx], output_x.size(-1),
+                    output_y.size(-1))
+
+                if self.use_target_weight:
+                    weight = target_weight[b, idx].squeeze()
+                else:
+                    weight = 1.
+
+                x_pred.append(coord_x_pred)
+                y_pred.append(coord_y_pred)
+                x_gt.append(coord_x_gt)
+                y_gt.append(coord_y_gt)
+                w.append(weight)
+
+        x_pred = torch.stack(x_pred, dim=0)
+        y_pred = torch.stack(y_pred, dim=0)
+        x_gt = torch.stack(x_gt, dim=0)
+        y_gt = torch.stack(y_gt, dim=0)
+        w = torch.stack(w, dim=0)
+        loss += (self.criterion(x_pred, x_gt).mul(w).sum())
+        loss += (self.criterion(y_pred, y_gt).mul(w).sum())
+
+        return loss / num_joints
+
+    def rle_forward(self, pred, sigma, target, target_weight=None):
+        """Forward function.
+
+        Note:
+            - batch_size: N
+            - num_keypoints: K
+            - dimension of keypoints: D (D=2 or D=3)
+
+        Args:
+            pred (Tensor[N, K, D]): Output regression.
+            sigma (Tensor[N, K, D]): Output sigma.
+            target (Tensor[N, K, D]): Target regression.
+            target_weight (Tensor[N, K, D]):
+                Weights across different joint types.
+        """
+        sigma = sigma.sigmoid()
+
+        error = (pred - target) / (sigma + 1e-9)
+        # (B, K, 2)
+        log_phi = self.flow_model.log_prob(error.reshape(-1, 2))
+        log_phi = log_phi.reshape(target.shape[0], target.shape[1], 1)
+        log_sigma = torch.log(sigma).reshape(target.shape[0], target.shape[1],
+                                             2)
+        nf_loss = log_sigma - log_phi
+
+        if self.residual:
+            assert self.q_distribution in ['laplace', 'gaussian']
+            if self.q_distribution == 'laplace':
+                loss_q = torch.log(sigma * 2) + torch.abs(error)
+            else:
+                loss_q = torch.log(
+                    sigma * math.sqrt(2 * math.pi)) + 0.5 * error**2
+
+            loss = nf_loss + loss_q
+        else:
+            loss = nf_loss
+
+        if self.use_target_weight:
+            assert target_weight is not None
+            loss *= target_weight
+
+        if self.size_average:
+            loss /= len(loss)
+
+        return loss.sum()
+
+
+@MODELS.register_module()
 class RLELoss(nn.Module):
     """RLE Loss.
 
