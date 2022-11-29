@@ -272,7 +272,7 @@ class DistKLDiscretLoss(nn.Module):
             loss += torch.mean(torch.abs(scores - labels), dim=1)
         else:
             loss += torch.mean((scores - labels)**2, dim=1)
-        return loss * 0.5
+        return loss * 0.5 / labels.size(0)
 
     def forward(self, pred_simcc, gt_simcc, target_weight):
         """Forward function.
