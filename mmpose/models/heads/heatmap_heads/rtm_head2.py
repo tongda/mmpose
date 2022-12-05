@@ -6,13 +6,12 @@ from mmcv.cnn import build_conv_layer
 from torch import Tensor, nn
 
 from mmpose.evaluation.functional import simcc_pck_accuracy
-from mmpose.models.utils.gilbert2d import gilbert2d
 from mmpose.models.utils.tta import flip_vectors
 from mmpose.registry import KEYPOINT_CODECS, MODELS
 from mmpose.utils.tensor_utils import to_numpy
 from mmpose.utils.typing import (ConfigType, InstanceList, OptConfigType,
                                  OptSampleList)
-from ...utils.rtmpose_block import SE, RTMBlock, ScaleNorm, rope
+from ...utils.rtmpose_block import RTMBlock, ScaleNorm
 from ..base_head import BaseHead
 
 OptIntSeq = Optional[Sequence[int]]
@@ -28,26 +27,17 @@ class RTMHead2(BaseHead):
         input_size: Tuple[int, int],
         in_featuremap_size: Tuple[int, int],
         simcc_split_ratio: float = 2.0,
-        use_hilbert_flatten: bool = False,
+        final_layer_kernel_size: int = 1,
         gau_cfg: ConfigType = dict(
             hidden_dims=256,
             s=128,
-            shift=True,
-            shift_type='time',
+            shift=False,
             dropout_rate=0.,
             drop_path=0.,
-            act_fn='StarReLU',
+            act_fn='ReLU',
             use_rel_bias=False,
         ),
-        use_coord_token: bool = False,
-        coord_pos_enc: bool = False,
-        flatten_pos_enc: bool = False,
-        axis_align: bool = True,
-        align_block: str = 'gau',
-        feat_norm: bool = False,
-        aux_loss: float = 0.,
         num_self_attn: int = 1,
-        use_cross_attn: bool = False,
         input_transform: str = 'select',
         input_index: Union[int, Sequence[int]] = -1,
         align_corners: bool = False,
@@ -70,14 +60,7 @@ class RTMHead2(BaseHead):
         self.input_transform = input_transform
         self.input_index = input_index
 
-        self.use_hilbert_flatten = use_hilbert_flatten
         self.num_self_attn = num_self_attn
-        self.use_coord_token = use_coord_token
-        self.use_cross_attn = use_cross_attn
-        self.aux_loss = aux_loss
-        self.coord_pos_enc = coord_pos_enc
-        self.flatten_pos_enc = flatten_pos_enc
-        self.feat_norm = feat_norm
 
         self.loss_module = MODELS.build(loss)
         if decoder is not None:
@@ -99,65 +82,34 @@ class RTMHead2(BaseHead):
             type='Conv2d',
             in_channels=in_channels,
             out_channels=out_channels,
-            kernel_size=1)
+            kernel_size=final_layer_kernel_size,
+            stride=1,
+            padding=final_layer_kernel_size // 2)
         self.final_layer = build_conv_layer(cfg)
         self.mlp = nn.Sequential(
             ScaleNorm(flatten_dims),
             nn.Linear(flatten_dims, gau_cfg.hidden_dims, bias=False))
 
-        if use_hilbert_flatten:
-            hilbert_mapping = []
-            for x, y in gilbert2d(in_featuremap_size[1],
-                                  in_featuremap_size[0]):
-                hilbert_mapping.append(x * in_featuremap_size[0] + y)
-            self.hilbert_mapping = hilbert_mapping
-
         W = int(self.input_size[0] * self.simcc_split_ratio)
         H = int(self.input_size[1] * self.simcc_split_ratio)
 
-        if align_block == 'gau':
-            block_x = RTMBlock(
-                self.out_channels,
-                gau_cfg.hidden_dims,
-                gau_cfg.hidden_dims,
-                s=gau_cfg.s,
-                dropout_rate=0.,
-                drop_path=0.,
-                shift=gau_cfg.shift_type if gau_cfg.shift else None,
-                act_fn=gau_cfg.act_fn,
-                use_rel_bias=gau_cfg.use_rel_bias)
-            block_y = RTMBlock(
-                self.out_channels,
-                gau_cfg.hidden_dims,
-                gau_cfg.hidden_dims,
-                s=gau_cfg.s,
-                dropout_rate=0.,
-                drop_path=0.,
-                shift=gau_cfg.shift_type if gau_cfg.shift else None,
-                act_fn=gau_cfg.act_fn,
-                use_rel_bias=gau_cfg.use_rel_bias)
-        else:
-            block_x = nn.Sequential(
-                ScaleNorm(gau_cfg.hidden_dims),
-                nn.Linear(
-                    gau_cfg.hidden_dims, gau_cfg.hidden_dims // 4, bias=False),
-                nn.ReLU(True),
-                nn.Linear(
-                    gau_cfg.hidden_dims // 4, gau_cfg.hidden_dims, bias=False))
-            block_y = nn.Sequential(
-                ScaleNorm(gau_cfg.hidden_dims),
-                nn.Linear(
-                    gau_cfg.hidden_dims, gau_cfg.hidden_dims // 4, bias=False),
-                nn.ReLU(True),
-                nn.Linear(
-                    gau_cfg.hidden_dims // 4, gau_cfg.hidden_dims, bias=False))
+        # block_x = nn.Sequential(
+        #     ScaleNorm(gau_cfg.hidden_dims),
+        #     nn.Linear(
+        #         gau_cfg.hidden_dims, gau_cfg.hidden_dims // 4, bias=False),
+        #     nn.ReLU(True),
+        #     nn.Linear(
+        #         gau_cfg.hidden_dims // 4, gau_cfg.hidden_dims, bias=False))
+        # block_y = nn.Sequential(
+        #     ScaleNorm(gau_cfg.hidden_dims),
+        #     nn.Linear(
+        #         gau_cfg.hidden_dims, gau_cfg.hidden_dims // 4, bias=False),
+        #     nn.ReLU(True),
+        #     nn.Linear(
+        #         gau_cfg.hidden_dims // 4, gau_cfg.hidden_dims, bias=False))
 
-        if axis_align:
-            self.split_x = SE(block_x)
-            self.split_y = SE(block_y)
-        else:
-            self.split_x = block_x
-            self.split_y = block_y
+        # self.split_x = SE(block_x)
+        # self.split_y = SE(block_y)
 
         if num_self_attn > 0:
             decoder_x = [
@@ -168,8 +120,8 @@ class RTMHead2(BaseHead):
                     s=gau_cfg.s,
                     dropout_rate=gau_cfg.dropout_rate,
                     drop_path=gau_cfg.drop_path,
-                    attn_type='cross-attn' if use_cross_attn else 'self-attn',
-                    shift=gau_cfg.shift_type if gau_cfg.shift else None,
+                    attn_type='self-attn',
+                    shift=gau_cfg.shift,
                     act_fn=gau_cfg.act_fn,
                     use_rel_bias=gau_cfg.use_rel_bias)
                 for _ in range(num_self_attn)
@@ -184,8 +136,8 @@ class RTMHead2(BaseHead):
                     s=gau_cfg.s,
                     dropout_rate=gau_cfg.dropout_rate,
                     drop_path=gau_cfg.drop_path,
-                    attn_type='cross-attn' if use_cross_attn else 'self-attn',
-                    shift=gau_cfg.shift_type if gau_cfg.shift else None,
+                    attn_type='self-attn',
+                    shift=gau_cfg.shift,
                     act_fn=gau_cfg.act_fn,
                     use_rel_bias=gau_cfg.use_rel_bias)
                 for _ in range(num_self_attn)
@@ -212,20 +164,15 @@ class RTMHead2(BaseHead):
 
         # flatten the output heatmap
         feats = torch.flatten(feats, 2)
-        if self.use_hilbert_flatten:
-            feats = feats[:, :, self.hilbert_mapping]
-
-        if self.flatten_pos_enc:
-            feats = rope(feats, 1)
 
         feats = self.mlp(feats)  # -> B, K, hidden
 
-        pred_x = self.split_x(feats)
-        pred_y = self.split_y(feats)
+        # pred_x = self.split_x(feats)
+        # pred_y = self.split_y(feats)
 
         for i in range(self.num_self_attn):
-            pred_x = self.decoder_x[i](pred_x)
-            pred_y = self.decoder_y[i](pred_y)
+            pred_x = self.decoder_x[i](feats)
+            pred_y = self.decoder_y[i](feats)
 
         pred_x = self.cls_x(pred_x)
         pred_y = self.cls_y(pred_y)
@@ -342,8 +289,7 @@ class RTMHead2(BaseHead):
     @property
     def default_init_cfg(self):
         init_cfg = [
-            dict(
-                type='Normal', layer=['Conv2d', 'ConvTranspose2d'], std=0.001),
+            dict(type='Normal', layer=['Conv2d'], std=0.001),
             dict(type='Constant', layer='BatchNorm2d', val=1),
             dict(type='Normal', layer=['Linear'], std=0.01, bias=0),
         ]
