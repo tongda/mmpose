@@ -5,14 +5,14 @@ max_epochs = 210
 stage2_num_epochs = 30
 base_lr = 4e-3
 
-train_cfg = dict(max_epochs=max_epochs, val_interval=10)
+train_cfg = dict(max_epochs=210, val_interval=10)
 randomness = dict(seed=21)
 
 # optimizer
 optim_wrapper = dict(
     type='OptimWrapper',
     optimizer=dict(type='AdamW', lr=base_lr, weight_decay=0.05),
-    # clip_grad=dict(max_norm=1., norm_type=2),
+    clip_grad=dict(max_norm=1., norm_type=2),
     paramwise_cfg=dict(
         norm_decay_mult=0, bias_decay_mult=0, bypass_duplicate=True))
 
@@ -27,22 +27,22 @@ param_scheduler = [
     dict(
         # use cosine lr from 150 to 300 epoch
         type='CosineAnnealingLR',
-        eta_min=base_lr * 0.05,
-        begin=max_epochs // 2,
+        eta_min=base_lr * 0.02,
+        begin=max_epochs // 3,
         end=max_epochs,
-        T_max=2 * max_epochs // 2,
+        T_max=2 * max_epochs // 3,
         by_epoch=True,
         convert_to_iter_based=True),
 ]
 
 # automatically scaling LR based on the actual training batch size
-auto_scale_lr = dict(base_batch_size=1024)
+auto_scale_lr = dict(base_batch_size=512)
 
 # codec settings
 codec = dict(
     type='SimCCLabel',
-    input_size=(192, 256),
-    sigma=(4.9, 5.66),
+    input_size=(256, 256),
+    sigma=(5.66, 5.66),
     simcc_split_ratio=2.0,
     normalize=False,
     use_dark=False)
@@ -64,18 +64,19 @@ model = dict(
         widen_factor=0.75,
         out_indices=(4, ),
         channel_attention=True,
+        norm_cfg=dict(type='SyncBN'),
         act_cfg=dict(type='SiLU'),
         init_cfg=dict(
             type='Pretrained',
             prefix='backbone.',
             checkpoint='/mnt/petrelfs/jiangtao/pretrained_models/'
-            'cspnext-m_coco_256x192.pth')),
+            'cspnext-m_coco-aic_256x192.pth')),
     head=dict(
         type='RTMHead',
         in_channels=768,
         out_channels=17,
         input_size=codec['input_size'],
-        in_featuremap_size=(6, 8),
+        in_featuremap_size=(8, 8),
         simcc_split_ratio=codec['simcc_split_ratio'],
         final_layer_kernel_size=5,
         gau_cfg=dict(
@@ -91,21 +92,21 @@ model = dict(
         loss=dict(
             type='KLDiscretLoss',
             use_target_weight=True,
-            beta=15.,
+            beta=10.,
             label_softmax=True),
         decoder=codec),
     test_cfg=dict(flip_test=False, ))
 
 # base dataset settings
-dataset_type = 'CocoDataset'
+dataset_type = 'AP10KDataset'
 data_mode = 'topdown'
-data_root = '/mnt/lustre/share_data/openmmlab/datasets/detection/coco/'
+data_root = 'data/ap10k/'
 
 file_client_args = dict(
     backend='petrel',
     path_mapping=dict({
-        f'{data_root}': 's3://openmmlab/datasets/detection/coco/',
-        f'{data_root}': 's3://openmmlab/datasets/detection/coco/'
+        f'{data_root}': 's3://openmmlab/datasets/pose/ap10k/',
+        f'{data_root}': 's3://openmmlab/datasets/pose/ap10k/'
     }))
 
 # pipelines
@@ -134,7 +135,7 @@ train_pipeline = [
                 min_holes=1,
                 min_height=0.2,
                 min_width=0.2,
-                p=1.),
+                p=1.0),
         ]),
     dict(type='GenerateTarget', encoder=codec),
     dict(type='PackPoseInputs')
@@ -143,7 +144,10 @@ val_pipeline = [
     dict(type='LoadImage', file_client_args=file_client_args),
     dict(type='GetBBoxCenterScale'),
     dict(type='TopdownAffine', input_size=codec['input_size']),
-    dict(type='PackPoseInputs')
+    dict(
+        type='PackPoseInputs',
+        meta_keys=('id', 'img_id', 'img_path', 'ori_shape', 'img_shape',
+                   'input_size', 'flip_indices', 'category'))
 ]
 
 train_pipeline_stage2 = [
@@ -181,7 +185,7 @@ train_pipeline_stage2 = [
 
 # data loaders
 train_dataloader = dict(
-    batch_size=128 * 2,
+    batch_size=64,
     num_workers=10,
     persistent_workers=True,
     sampler=dict(type='DefaultSampler', shuffle=True),
@@ -189,12 +193,12 @@ train_dataloader = dict(
         type=dataset_type,
         data_root=data_root,
         data_mode=data_mode,
-        ann_file='annotations/person_keypoints_train2017.json',
-        data_prefix=dict(img='train2017/'),
+        ann_file='annotations/ap10k-train-split1.json',
+        data_prefix=dict(img='data/'),
         pipeline=train_pipeline,
     ))
 val_dataloader = dict(
-    batch_size=64,
+    batch_size=32,
     num_workers=10,
     persistent_workers=True,
     drop_last=False,
@@ -203,19 +207,30 @@ val_dataloader = dict(
         type=dataset_type,
         data_root=data_root,
         data_mode=data_mode,
-        ann_file='annotations/person_keypoints_val2017.json',
-        # bbox_file=f'{data_root}person_detection_results/'
-        # 'COCO_val2017_detections_AP_H_56_person.json',
-        # bbox_file='/mnt/petrelfs/jiangtao/rtmdet-nano-bbox.json',
-        data_prefix=dict(img='val2017/'),
+        ann_file='annotations/ap10k-val-split1.json',
+        data_prefix=dict(img='data/'),
         test_mode=True,
         pipeline=val_pipeline,
     ))
-test_dataloader = val_dataloader
+test_dataloader = dict(
+    batch_size=32,
+    num_workers=10,
+    persistent_workers=True,
+    drop_last=False,
+    sampler=dict(type='DefaultSampler', shuffle=False, round_up=False),
+    dataset=dict(
+        type=dataset_type,
+        data_root=data_root,
+        data_mode=data_mode,
+        ann_file='annotations/ap10k-test-split1.json',
+        data_prefix=dict(img='data/'),
+        test_mode=True,
+        pipeline=val_pipeline,
+    ))
 
 # hooks
 default_hooks = dict(
-    checkpoint=dict(save_best='coco/AP', rule='greater', max_keep_ckpts=1))
+    checkpoint=dict(save_best='ap10k/AP', rule='greater', max_keep_ckpts=1))
 
 custom_hooks = [
     dict(
@@ -232,6 +247,8 @@ custom_hooks = [
 
 # evaluators
 val_evaluator = dict(
-    type='CocoMetric',
-    ann_file=data_root + 'annotations/person_keypoints_val2017.json')
-test_evaluator = val_evaluator
+    type='AP10KCocoMetric',
+    ann_file=data_root + 'annotations/ap10k-val-split1.json')
+test_evaluator = dict(
+    type='AP10KCocoMetric',
+    ann_file=data_root + 'annotations/ap10k-test-split1.json')

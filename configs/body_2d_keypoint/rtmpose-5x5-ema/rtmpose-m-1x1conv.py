@@ -115,7 +115,7 @@ train_pipeline = [
     dict(type='RandomFlip', direction='horizontal'),
     dict(type='RandomHalfBody'),
     dict(
-        type='RandomBBoxTransform', scale_factor=[0.6, 1.4], rotate_factor=80),
+        type='RandomBBoxTransform', scale_factor=[0.5, 1.5], rotate_factor=80),
     dict(type='TopdownAffine', input_size=codec['input_size']),
     # dict(type='PhotometricDistortion'),
     dict(type='mmdet.YOLOXHSVRandomAug'),

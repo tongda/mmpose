@@ -77,7 +77,7 @@ model = dict(
         input_size=codec['input_size'],
         in_featuremap_size=(6, 8),
         simcc_split_ratio=codec['simcc_split_ratio'],
-        final_layer_kernel_size=3,
+        final_layer_kernel_size=5,
         gau_cfg=dict(
             hidden_dims=64,
             s=128,
@@ -115,7 +115,7 @@ train_pipeline = [
     dict(type='RandomFlip', direction='horizontal'),
     dict(type='RandomHalfBody'),
     dict(
-        type='RandomBBoxTransform', scale_factor=[0.6, 1.4], rotate_factor=80),
+        type='RandomBBoxTransform', scale_factor=[0.5, 1.5], rotate_factor=80),
     dict(type='TopdownAffine', input_size=codec['input_size']),
     # dict(type='PhotometricDistortion'),
     dict(type='mmdet.YOLOXHSVRandomAug'),
