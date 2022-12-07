@@ -12,7 +12,7 @@ randomness = dict(seed=21)
 optim_wrapper = dict(
     type='OptimWrapper',
     optimizer=dict(type='AdamW', lr=base_lr, weight_decay=0.05),
-    clip_grad=dict(max_norm=1., norm_type=2),
+    # clip_grad=dict(max_norm=1., norm_type=2),
     paramwise_cfg=dict(
         norm_decay_mult=0, bias_decay_mult=0, bypass_duplicate=True))
 
@@ -40,7 +40,12 @@ auto_scale_lr = dict(base_batch_size=512)
 
 # codec settings
 codec = dict(
-    type='UDPHeatmap', input_size=(192, 256), heatmap_size=(48, 64), sigma=2)
+    type='SimCCLabel',
+    input_size=(256, 256),
+    sigma=(5.66, 5.66),
+    simcc_split_ratio=2.0,
+    normalize=False,
+    use_dark=False)
 
 # model settings
 model = dict(
@@ -61,17 +66,34 @@ model = dict(
         channel_attention=True,
         norm_cfg=dict(type='SyncBN'),
         act_cfg=dict(type='SiLU'),
-        # init_cfg=dict(
-        #     type='Pretrained',
-        #     prefix='backbone.',
-        #     checkpoint='/mnt/petrelfs/jiangtao/pretrained_models/'
-        #     'cspnext-m_coco-aic_256x192.pth')
-    ),
+        init_cfg=dict(
+            type='Pretrained',
+            prefix='backbone.',
+            checkpoint='/mnt/petrelfs/jiangtao/pretrained_models/'
+            'cspnext-m_ap10k_256x192.pth')),
     head=dict(
-        type='HeatmapHead',
+        type='RTMHead',
         in_channels=768,
         out_channels=17,
-        loss=dict(type='KeypointMSELoss', use_target_weight=True),
+        input_size=codec['input_size'],
+        in_featuremap_size=(8, 8),
+        simcc_split_ratio=codec['simcc_split_ratio'],
+        final_layer_kernel_size=5,
+        gau_cfg=dict(
+            hidden_dims=256,
+            s=128,
+            shift=False,
+            dropout_rate=0.,
+            drop_path=0.,
+            act_fn='SiLU',
+            use_rel_bias=False,
+        ),
+        num_self_attn=1,
+        loss=dict(
+            type='KLDiscretLoss',
+            use_target_weight=True,
+            beta=10.,
+            label_softmax=True),
         decoder=codec),
     test_cfg=dict(flip_test=False, ))
 

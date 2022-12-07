@@ -27,20 +27,25 @@ param_scheduler = [
     dict(
         # use cosine lr from 150 to 300 epoch
         type='CosineAnnealingLR',
-        eta_min=base_lr * 0.05,
-        begin=max_epochs // 2,
+        eta_min=base_lr * 0.02,
+        begin=max_epochs // 3,
         end=max_epochs,
-        T_max=2 * max_epochs // 2,
+        T_max=2 * max_epochs // 3,
         by_epoch=True,
         convert_to_iter_based=True),
 ]
 
 # automatically scaling LR based on the actual training batch size
-auto_scale_lr = dict(base_batch_size=512)
+auto_scale_lr = dict(base_batch_size=1024)
 
 # codec settings
 codec = dict(
-    type='UDPHeatmap', input_size=(192, 256), heatmap_size=(48, 64), sigma=2)
+    type='SimCCLabel',
+    input_size=(192, 256),
+    sigma=(4.9, 5.66),
+    simcc_split_ratio=2.0,
+    normalize=False,
+    use_dark=False)
 
 # model settings
 model = dict(
@@ -55,36 +60,53 @@ model = dict(
         type='CSPNeXt',
         arch='P5',
         expand_ratio=0.5,
-        deepen_factor=0.67,
-        widen_factor=0.75,
+        deepen_factor=0.33,
+        widen_factor=0.5,
         out_indices=(4, ),
         channel_attention=True,
         norm_cfg=dict(type='SyncBN'),
         act_cfg=dict(type='SiLU'),
-        # init_cfg=dict(
-        #     type='Pretrained',
-        #     prefix='backbone.',
-        #     checkpoint='/mnt/petrelfs/jiangtao/pretrained_models/'
-        #     'cspnext-m_coco-aic_256x192.pth')
-    ),
+        init_cfg=dict(
+            type='Pretrained',
+            prefix='backbone.',
+            checkpoint='/mnt/petrelfs/jiangtao/pretrained_models/'
+            'cspnext-s_coco-aic_256x192.pth')),
     head=dict(
-        type='HeatmapHead',
-        in_channels=768,
+        type='RTMHead',
+        in_channels=512,
         out_channels=17,
-        loss=dict(type='KeypointMSELoss', use_target_weight=True),
+        input_size=codec['input_size'],
+        in_featuremap_size=(6, 8),
+        simcc_split_ratio=codec['simcc_split_ratio'],
+        final_layer_kernel_size=5,
+        gau_cfg=dict(
+            hidden_dims=256,
+            s=128,
+            shift=False,
+            dropout_rate=0.,
+            drop_path=0.,
+            act_fn='SiLU',
+            use_rel_bias=False,
+        ),
+        num_self_attn=1,
+        loss=dict(
+            type='KLDiscretLoss',
+            use_target_weight=True,
+            beta=10.,
+            label_softmax=True),
         decoder=codec),
     test_cfg=dict(flip_test=False, ))
 
 # base dataset settings
-dataset_type = 'AP10KDataset'
+dataset_type = 'CocoDataset'
 data_mode = 'topdown'
-data_root = 'data/ap10k/'
+data_root = 'data/'
 
 file_client_args = dict(
     backend='petrel',
     path_mapping=dict({
-        f'{data_root}': 's3://openmmlab/datasets/pose/ap10k/',
-        f'{data_root}': 's3://openmmlab/datasets/pose/ap10k/'
+        f'{data_root}': 's3://openmmlab/datasets/',
+        f'{data_root}': 's3://openmmlab/datasets/'
     }))
 
 # pipelines
@@ -122,10 +144,7 @@ val_pipeline = [
     dict(type='LoadImage', file_client_args=file_client_args),
     dict(type='GetBBoxCenterScale'),
     dict(type='TopdownAffine', input_size=codec['input_size']),
-    dict(
-        type='PackPoseInputs',
-        meta_keys=('id', 'img_id', 'img_path', 'ori_shape', 'img_shape',
-                   'input_size', 'flip_indices', 'category'))
+    dict(type='PackPoseInputs')
 ]
 
 train_pipeline_stage2 = [
@@ -161,19 +180,56 @@ train_pipeline_stage2 = [
     dict(type='PackPoseInputs')
 ]
 
+# train datasets
+dataset_coco = dict(
+    type=dataset_type,
+    data_root=data_root,
+    data_mode=data_mode,
+    ann_file='coco/annotations/person_keypoints_train2017.json',
+    data_prefix=dict(img='detection/coco/train2017/'),
+    pipeline=[],
+)
+
+dataset_aic = dict(
+    type='AicDataset',
+    data_root=data_root,
+    data_mode=data_mode,
+    ann_file='aic/annotations/aic_train.json',
+    data_prefix=dict(img='pose/ai_challenge/ai_challenger_keypoint'
+                     '_train_20170902/keypoint_train_images_20170902/'),
+    pipeline=[
+        dict(
+            type='KeypointConverter',
+            num_keypoints=17,
+            mapping=[
+                (0, 6),
+                (1, 8),
+                (2, 10),
+                (3, 5),
+                (4, 7),
+                (5, 9),
+                (6, 12),
+                (7, 14),
+                (8, 16),
+                (9, 11),
+                (10, 13),
+                (11, 15),
+            ])
+    ],
+)
+
 # data loaders
 train_dataloader = dict(
-    batch_size=64,
+    batch_size=128 * 2,
     num_workers=10,
     persistent_workers=True,
     sampler=dict(type='DefaultSampler', shuffle=True),
     dataset=dict(
-        type=dataset_type,
-        data_root=data_root,
-        data_mode=data_mode,
-        ann_file='annotations/ap10k-train-split1.json',
-        data_prefix=dict(img='data/'),
+        type='CombinedDataset',
+        metainfo=dict(from_file='configs/_base_/datasets/coco.py'),
+        datasets=[dataset_coco, dataset_aic],
         pipeline=train_pipeline,
+        test_mode=False,
     ))
 val_dataloader = dict(
     batch_size=32,
@@ -185,38 +241,26 @@ val_dataloader = dict(
         type=dataset_type,
         data_root=data_root,
         data_mode=data_mode,
-        ann_file='annotations/ap10k-val-split1.json',
-        data_prefix=dict(img='data/'),
+        ann_file='coco/annotations/person_keypoints_val2017.json',
+        # bbox_file='data/coco/person_detection_results/'
+        # 'COCO_val2017_detections_AP_H_56_person.json',
+        data_prefix=dict(img='detection/coco/val2017/'),
         test_mode=True,
         pipeline=val_pipeline,
     ))
-test_dataloader = dict(
-    batch_size=32,
-    num_workers=10,
-    persistent_workers=True,
-    drop_last=False,
-    sampler=dict(type='DefaultSampler', shuffle=False, round_up=False),
-    dataset=dict(
-        type=dataset_type,
-        data_root=data_root,
-        data_mode=data_mode,
-        ann_file='annotations/ap10k-test-split1.json',
-        data_prefix=dict(img='data/'),
-        test_mode=True,
-        pipeline=val_pipeline,
-    ))
+test_dataloader = val_dataloader
 
 # hooks
 default_hooks = dict(
-    checkpoint=dict(save_best='ap10k/AP', rule='greater', max_keep_ckpts=1))
+    checkpoint=dict(save_best='coco/AP', rule='greater', max_keep_ckpts=1))
 
 custom_hooks = [
-    dict(
-        type='EMAHook',
-        ema_type='ExpMomentumEMA',
-        momentum=0.0002,
-        update_buffers=True,
-        priority=49),
+    # dict(
+    #     type='EMAHook',
+    #     ema_type='ExpMomentumEMA',
+    #     momentum=0.0002,
+    #     update_buffers=True,
+    #     priority=49),
     dict(
         type='mmdet.PipelineSwitchHook',
         switch_epoch=max_epochs - stage2_num_epochs,
@@ -225,8 +269,6 @@ custom_hooks = [
 
 # evaluators
 val_evaluator = dict(
-    type='AP10KCocoMetric',
-    ann_file=data_root + 'annotations/ap10k-val-split1.json')
-test_evaluator = dict(
-    type='AP10KCocoMetric',
-    ann_file=data_root + 'annotations/ap10k-test-split1.json')
+    type='CocoMetric',
+    ann_file=data_root + 'coco/annotations/person_keypoints_val2017.json')
+test_evaluator = val_evaluator
