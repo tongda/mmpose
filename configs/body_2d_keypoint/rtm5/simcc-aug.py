@@ -36,16 +36,11 @@ param_scheduler = [
 ]
 
 # automatically scaling LR based on the actual training batch size
-auto_scale_lr = dict(base_batch_size=512)
+auto_scale_lr = dict(base_batch_size=1024)
 
 # codec settings
 codec = dict(
-    type='SimCCLabel',
-    input_size=(192, 256),
-    sigma=(4.9, 5.66),
-    simcc_split_ratio=2.0,
-    normalize=False,
-    use_dark=False)
+    type='SimCCLabel', input_size=(192, 256), sigma=6.0, simcc_split_ratio=2.0)
 
 # model settings
 model = dict(
@@ -70,43 +65,29 @@ model = dict(
             type='Pretrained',
             prefix='backbone.',
             checkpoint='/mnt/petrelfs/jiangtao/pretrained_models/'
-            'cspnext-m_crowdpose_256x192.pth')),
+            'cspnext-m_coco_256x192.pth')),
     head=dict(
-        type='RTMHead',
+        type='SimCCHead',
         in_channels=768,
-        out_channels=14,
+        out_channels=17,
         input_size=codec['input_size'],
+        deconv_out_channels=None,
         in_featuremap_size=(6, 8),
         simcc_split_ratio=codec['simcc_split_ratio'],
-        final_layer_kernel_size=5,
-        gau_cfg=dict(
-            hidden_dims=256,
-            s=128,
-            shift=False,
-            dropout_rate=0.,
-            drop_path=0.,
-            act_fn='SiLU',
-            use_rel_bias=False,
-        ),
-        num_self_attn=1,
-        loss=dict(
-            type='KLDiscretLoss',
-            use_target_weight=True,
-            beta=10.,
-            label_softmax=True),
+        loss=dict(type='KLDiscretLoss', use_target_weight=True),
         decoder=codec),
-    test_cfg=dict(flip_test=False, ))
+    test_cfg=dict(flip_test=False))
 
 # base dataset settings
-dataset_type = 'CrowdPoseDataset'
+dataset_type = 'CocoDataset'
 data_mode = 'topdown'
-data_root = 'data/'
+data_root = '/mnt/lustre/share_data/openmmlab/datasets/detection/coco/'
 
 file_client_args = dict(
     backend='petrel',
     path_mapping=dict({
-        f'{data_root}': 's3://openmmlab/datasets/',
-        f'{data_root}': 's3://openmmlab/datasets/'
+        f'{data_root}': 's3://openmmlab/datasets/detection/coco/',
+        f'{data_root}': 's3://openmmlab/datasets/detection/coco/'
     }))
 
 # pipelines
@@ -135,7 +116,7 @@ train_pipeline = [
                 min_holes=1,
                 min_height=0.2,
                 min_width=0.2,
-                p=1.0),
+                p=1.),
         ]),
     dict(type='GenerateTarget', encoder=codec),
     dict(type='PackPoseInputs')
@@ -182,7 +163,7 @@ train_pipeline_stage2 = [
 
 # data loaders
 train_dataloader = dict(
-    batch_size=64,
+    batch_size=128 * 2,
     num_workers=10,
     persistent_workers=True,
     sampler=dict(type='DefaultSampler', shuffle=True),
@@ -190,13 +171,13 @@ train_dataloader = dict(
         type=dataset_type,
         data_root=data_root,
         data_mode=data_mode,
-        ann_file='crowdpose/annotations/mmpose_crowdpose_trainval.json',
-        data_prefix=dict(img='pose/CrowdPose/images/'),
+        ann_file='annotations/person_keypoints_train2017.json',
+        data_prefix=dict(img='train2017/'),
         pipeline=train_pipeline,
     ))
 val_dataloader = dict(
-    batch_size=32,
-    num_workers=2,
+    batch_size=64,
+    num_workers=10,
     persistent_workers=True,
     drop_last=False,
     sampler=dict(type='DefaultSampler', shuffle=False, round_up=False),
@@ -204,9 +185,11 @@ val_dataloader = dict(
         type=dataset_type,
         data_root=data_root,
         data_mode=data_mode,
-        ann_file='crowdpose/annotations/mmpose_crowdpose_test.json',
-        bbox_file='data/crowdpose/annotations/det_for_crowd_test_0.1_0.5.json',
-        data_prefix=dict(img='pose/CrowdPose/images/'),
+        ann_file='annotations/person_keypoints_val2017.json',
+        # bbox_file=f'{data_root}person_detection_results/'
+        # 'COCO_val2017_detections_AP_H_56_person.json',
+        # bbox_file='/mnt/petrelfs/jiangtao/rtmdet-nano-bbox.json',
+        data_prefix=dict(img='val2017/'),
         test_mode=True,
         pipeline=val_pipeline,
     ))
@@ -214,8 +197,7 @@ test_dataloader = val_dataloader
 
 # hooks
 default_hooks = dict(
-    checkpoint=dict(
-        save_best='crowdpose/AP', rule='greater', max_keep_ckpts=1))
+    checkpoint=dict(save_best='coco/AP', rule='greater', max_keep_ckpts=1))
 
 custom_hooks = [
     dict(
@@ -233,8 +215,5 @@ custom_hooks = [
 # evaluators
 val_evaluator = dict(
     type='CocoMetric',
-    ann_file=data_root + 'crowdpose/annotations/mmpose_crowdpose_test.json',
-    use_area=False,
-    iou_type='keypoints_crowd',
-    prefix='crowdpose')
+    ann_file=data_root + 'annotations/person_keypoints_val2017.json')
 test_evaluator = val_evaluator

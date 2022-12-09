@@ -40,12 +40,7 @@ auto_scale_lr = dict(base_batch_size=512)
 
 # codec settings
 codec = dict(
-    type='SimCCLabel',
-    input_size=(192, 256),
-    sigma=(4.9, 5.66),
-    simcc_split_ratio=2.0,
-    normalize=False,
-    use_dark=False)
+    type='UDPHeatmap', input_size=(192, 256), heatmap_size=(48, 64), sigma=2)
 
 # model settings
 model = dict(
@@ -66,47 +61,30 @@ model = dict(
         channel_attention=True,
         norm_cfg=dict(type='SyncBN'),
         act_cfg=dict(type='SiLU'),
-        init_cfg=dict(
-            type='Pretrained',
-            prefix='backbone.',
-            checkpoint='/mnt/petrelfs/jiangtao/pretrained_models/'
-            'cspnext-m_crowdpose_256x192.pth')),
+        # init_cfg=dict(
+        #     type='Pretrained',
+        #     prefix='backbone.',
+        #     checkpoint='/mnt/petrelfs/jiangtao/pretrained_models/'
+        #     'cspnext-m_coco-aic_256x192.pth')
+    ),
     head=dict(
-        type='RTMHead',
+        type='HeatmapHead',
         in_channels=768,
-        out_channels=14,
-        input_size=codec['input_size'],
-        in_featuremap_size=(6, 8),
-        simcc_split_ratio=codec['simcc_split_ratio'],
-        final_layer_kernel_size=5,
-        gau_cfg=dict(
-            hidden_dims=256,
-            s=128,
-            shift=False,
-            dropout_rate=0.,
-            drop_path=0.,
-            act_fn='SiLU',
-            use_rel_bias=False,
-        ),
-        num_self_attn=1,
-        loss=dict(
-            type='KLDiscretLoss',
-            use_target_weight=True,
-            beta=10.,
-            label_softmax=True),
+        out_channels=17,
+        loss=dict(type='KeypointMSELoss', use_target_weight=True),
         decoder=codec),
     test_cfg=dict(flip_test=False, ))
 
 # base dataset settings
-dataset_type = 'CrowdPoseDataset'
+dataset_type = 'AP10KDataset'
 data_mode = 'topdown'
-data_root = 'data/'
+data_root = 'data/ap10k/'
 
 file_client_args = dict(
     backend='petrel',
     path_mapping=dict({
-        f'{data_root}': 's3://openmmlab/datasets/',
-        f'{data_root}': 's3://openmmlab/datasets/'
+        f'{data_root}': 's3://openmmlab/datasets/pose/ap10k/',
+        f'{data_root}': 's3://openmmlab/datasets/pose/ap10k/'
     }))
 
 # pipelines
@@ -144,7 +122,10 @@ val_pipeline = [
     dict(type='LoadImage', file_client_args=file_client_args),
     dict(type='GetBBoxCenterScale'),
     dict(type='TopdownAffine', input_size=codec['input_size']),
-    dict(type='PackPoseInputs')
+    dict(
+        type='PackPoseInputs',
+        meta_keys=('id', 'img_id', 'img_path', 'ori_shape', 'img_shape',
+                   'input_size', 'flip_indices', 'category'))
 ]
 
 train_pipeline_stage2 = [
@@ -190,13 +171,13 @@ train_dataloader = dict(
         type=dataset_type,
         data_root=data_root,
         data_mode=data_mode,
-        ann_file='crowdpose/annotations/mmpose_crowdpose_trainval.json',
-        data_prefix=dict(img='pose/CrowdPose/images/'),
+        ann_file='annotations/ap10k-train-split1.json',
+        data_prefix=dict(img='data/'),
         pipeline=train_pipeline,
     ))
 val_dataloader = dict(
     batch_size=32,
-    num_workers=2,
+    num_workers=10,
     persistent_workers=True,
     drop_last=False,
     sampler=dict(type='DefaultSampler', shuffle=False, round_up=False),
@@ -204,18 +185,30 @@ val_dataloader = dict(
         type=dataset_type,
         data_root=data_root,
         data_mode=data_mode,
-        ann_file='crowdpose/annotations/mmpose_crowdpose_test.json',
-        bbox_file='data/crowdpose/annotations/det_for_crowd_test_0.1_0.5.json',
-        data_prefix=dict(img='pose/CrowdPose/images/'),
+        ann_file='annotations/ap10k-val-split1.json',
+        data_prefix=dict(img='data/'),
         test_mode=True,
         pipeline=val_pipeline,
     ))
-test_dataloader = val_dataloader
+test_dataloader = dict(
+    batch_size=32,
+    num_workers=10,
+    persistent_workers=True,
+    drop_last=False,
+    sampler=dict(type='DefaultSampler', shuffle=False, round_up=False),
+    dataset=dict(
+        type=dataset_type,
+        data_root=data_root,
+        data_mode=data_mode,
+        ann_file='annotations/ap10k-test-split1.json',
+        data_prefix=dict(img='data/'),
+        test_mode=True,
+        pipeline=val_pipeline,
+    ))
 
 # hooks
 default_hooks = dict(
-    checkpoint=dict(
-        save_best='crowdpose/AP', rule='greater', max_keep_ckpts=1))
+    checkpoint=dict(save_best='ap10k/AP', rule='greater', max_keep_ckpts=1))
 
 custom_hooks = [
     dict(
@@ -232,9 +225,8 @@ custom_hooks = [
 
 # evaluators
 val_evaluator = dict(
-    type='CocoMetric',
-    ann_file=data_root + 'crowdpose/annotations/mmpose_crowdpose_test.json',
-    use_area=False,
-    iou_type='keypoints_crowd',
-    prefix='crowdpose')
-test_evaluator = val_evaluator
+    type='AP10KCocoMetric',
+    ann_file=data_root + 'annotations/ap10k-val-split1.json')
+test_evaluator = dict(
+    type='AP10KCocoMetric',
+    ann_file=data_root + 'annotations/ap10k-test-split1.json')

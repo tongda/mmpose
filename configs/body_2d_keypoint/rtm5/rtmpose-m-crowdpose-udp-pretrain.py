@@ -40,12 +40,7 @@ auto_scale_lr = dict(base_batch_size=512)
 
 # codec settings
 codec = dict(
-    type='SimCCLabel',
-    input_size=(192, 256),
-    sigma=(4.9, 5.66),
-    simcc_split_ratio=2.0,
-    normalize=False,
-    use_dark=False)
+    type='UDPHeatmap', input_size=(192, 256), heatmap_size=(48, 64), sigma=2)
 
 # model settings
 model = dict(
@@ -66,34 +61,17 @@ model = dict(
         channel_attention=True,
         norm_cfg=dict(type='SyncBN'),
         act_cfg=dict(type='SiLU'),
-        init_cfg=dict(
-            type='Pretrained',
-            prefix='backbone.',
-            checkpoint='/mnt/petrelfs/jiangtao/pretrained_models/'
-            'cspnext-m_crowdpose_256x192.pth')),
+        # init_cfg=dict(
+        #     type='Pretrained',
+        #     prefix='backbone.',
+        #     checkpoint='/mnt/petrelfs/jiangtao/pretrained_models/'
+        #     'cspnext-m_coco-aic_256x192.pth')
+    ),
     head=dict(
-        type='RTMHead',
+        type='HeatmapHead',
         in_channels=768,
         out_channels=14,
-        input_size=codec['input_size'],
-        in_featuremap_size=(6, 8),
-        simcc_split_ratio=codec['simcc_split_ratio'],
-        final_layer_kernel_size=5,
-        gau_cfg=dict(
-            hidden_dims=256,
-            s=128,
-            shift=False,
-            dropout_rate=0.,
-            drop_path=0.,
-            act_fn='SiLU',
-            use_rel_bias=False,
-        ),
-        num_self_attn=1,
-        loss=dict(
-            type='KLDiscretLoss',
-            use_target_weight=True,
-            beta=10.,
-            label_softmax=True),
+        loss=dict(type='KeypointMSELoss', use_target_weight=True),
         decoder=codec),
     test_cfg=dict(flip_test=False, ))
 

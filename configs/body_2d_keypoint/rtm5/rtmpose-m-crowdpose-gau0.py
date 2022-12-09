@@ -88,7 +88,7 @@ model = dict(
             act_fn='SiLU',
             use_rel_bias=False,
         ),
-        num_self_attn=1,
+        num_self_attn=0,
         loss=dict(
             type='KLDiscretLoss',
             use_target_weight=True,
