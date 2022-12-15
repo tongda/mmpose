@@ -126,23 +126,23 @@ class RTMHead2(BaseHead):
                     use_rel_bias=gau_cfg.use_rel_bias)
                 for _ in range(num_self_attn)
             ]
-            self.decoder_x = nn.ModuleList(decoder_x)
+            self.decoders = nn.ModuleList(decoder_x)
 
-            decoder_y = [
-                RTMBlock(
-                    self.out_channels,
-                    gau_cfg.hidden_dims,
-                    gau_cfg.hidden_dims,
-                    s=gau_cfg.s,
-                    dropout_rate=gau_cfg.dropout_rate,
-                    drop_path=gau_cfg.drop_path,
-                    attn_type='self-attn',
-                    shift=gau_cfg.shift,
-                    act_fn=gau_cfg.act_fn,
-                    use_rel_bias=gau_cfg.use_rel_bias)
-                for _ in range(num_self_attn)
-            ]
-            self.decoder_y = nn.ModuleList(decoder_y)
+            # decoder_y = [
+            #     RTMBlock(
+            #         self.out_channels,
+            #         gau_cfg.hidden_dims,
+            #         gau_cfg.hidden_dims,
+            #         s=gau_cfg.s,
+            #         dropout_rate=gau_cfg.dropout_rate,
+            #         drop_path=gau_cfg.drop_path,
+            #         attn_type='self-attn',
+            #         shift=gau_cfg.shift,
+            #         act_fn=gau_cfg.act_fn,
+            #         use_rel_bias=gau_cfg.use_rel_bias)
+            #     for _ in range(num_self_attn)
+            # ]
+            # self.decoder_y = nn.ModuleList(decoder_y)
 
         self.cls_x = nn.Linear(gau_cfg.hidden_dims, W, bias=False)
         self.cls_y = nn.Linear(gau_cfg.hidden_dims, H, bias=False)
@@ -171,11 +171,14 @@ class RTMHead2(BaseHead):
         # pred_y = self.split_y(feats)
 
         for i in range(self.num_self_attn):
-            pred_x = self.decoder_x[i](feats)
-            pred_y = self.decoder_y[i](feats)
+            # pred_x = self.decoder_x[i](pred_x)
+            # pred_y = self.decoder_y[i](pred_y)
+            feats = self.decoders[i](feats)
 
-        pred_x = self.cls_x(pred_x)
-        pred_y = self.cls_y(pred_y)
+        # pred_x = self.cls_x(pred_x)
+        # pred_y = self.cls_y(pred_y)
+        pred_x = self.cls_x(feats)
+        pred_y = self.cls_y(feats)
 
         return pred_x, pred_y
 
