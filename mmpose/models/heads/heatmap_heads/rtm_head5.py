@@ -11,14 +11,14 @@ from mmpose.registry import KEYPOINT_CODECS, MODELS
 from mmpose.utils.tensor_utils import to_numpy
 from mmpose.utils.typing import (ConfigType, InstanceList, OptConfigType,
                                  OptSampleList)
-from ...utils.rtmpose_block import SE, RTMBlock, ScaleNorm
+from ...utils.rtmpose_block import RTMBlock, ScaleNorm
 from ..base_head import BaseHead
 
 OptIntSeq = Optional[Sequence[int]]
 
 
 @MODELS.register_module()
-class RTMHead3(BaseHead):
+class RTMHead5(BaseHead):
 
     def __init__(
         self,
@@ -31,12 +31,13 @@ class RTMHead3(BaseHead):
         gau_cfg: ConfigType = dict(
             hidden_dims=256,
             s=128,
+            expansion_factor=2,
             shift=False,
             dropout_rate=0.,
             drop_path=0.,
             act_fn='ReLU',
             use_rel_bias=False,
-        ),
+            pos_enc=False),
         num_self_attn: int = 1,
         input_transform: str = 'select',
         input_index: Union[int, Sequence[int]] = -1,
@@ -81,7 +82,7 @@ class RTMHead3(BaseHead):
         cfg = dict(
             type='Conv2d',
             in_channels=in_channels,
-            out_channels=out_channels,
+            out_channels=64,
             kernel_size=final_layer_kernel_size,
             stride=1,
             padding=final_layer_kernel_size // 2)
@@ -93,23 +94,23 @@ class RTMHead3(BaseHead):
         W = int(self.input_size[0] * self.simcc_split_ratio)
         H = int(self.input_size[1] * self.simcc_split_ratio)
 
-        block_x = nn.Sequential(
-            ScaleNorm(gau_cfg.hidden_dims),
-            nn.Linear(
-                gau_cfg.hidden_dims, gau_cfg.hidden_dims // 4, bias=False),
-            nn.ReLU(True),
-            nn.Linear(
-                gau_cfg.hidden_dims // 4, gau_cfg.hidden_dims, bias=False))
-        block_y = nn.Sequential(
-            ScaleNorm(gau_cfg.hidden_dims),
-            nn.Linear(
-                gau_cfg.hidden_dims, gau_cfg.hidden_dims // 4, bias=False),
-            nn.ReLU(True),
-            nn.Linear(
-                gau_cfg.hidden_dims // 4, gau_cfg.hidden_dims, bias=False))
+        # block_x = nn.Sequential(
+        #     ScaleNorm(gau_cfg.hidden_dims),
+        #     nn.Linear(
+        #         gau_cfg.hidden_dims, gau_cfg.hidden_dims // 4, bias=False),
+        #     nn.ReLU(True),
+        #     nn.Linear(
+        #         gau_cfg.hidden_dims // 4, gau_cfg.hidden_dims, bias=False))
+        # block_y = nn.Sequential(
+        #     ScaleNorm(gau_cfg.hidden_dims),
+        #     nn.Linear(
+        #         gau_cfg.hidden_dims, gau_cfg.hidden_dims // 4, bias=False),
+        #     nn.ReLU(True),
+        #     nn.Linear(
+        #         gau_cfg.hidden_dims // 4, gau_cfg.hidden_dims, bias=False))
 
-        self.split_x = SE(block_x)
-        self.split_y = SE(block_y)
+        # self.split_x = SE(block_x)
+        # self.split_y = SE(block_y)
 
         if num_self_attn > 0:
             decoder_x = [
@@ -118,13 +119,14 @@ class RTMHead3(BaseHead):
                     gau_cfg.hidden_dims,
                     gau_cfg.hidden_dims,
                     s=gau_cfg.s,
+                    expansion_factor=gau_cfg.expansion_factor,
                     dropout_rate=gau_cfg.dropout_rate,
                     drop_path=gau_cfg.drop_path,
                     attn_type='self-attn',
                     shift=gau_cfg.shift,
                     act_fn=gau_cfg.act_fn,
-                    use_rel_bias=gau_cfg.use_rel_bias)
-                for _ in range(num_self_attn)
+                    use_rel_bias=gau_cfg.use_rel_bias,
+                    pos_enc=gau_cfg.pos_enc) for _ in range(num_self_attn)
             ]
             self.decoders = nn.ModuleList(decoder_x)
 
@@ -144,8 +146,10 @@ class RTMHead3(BaseHead):
             # ]
             # self.decoder_y = nn.ModuleList(decoder_y)
 
-        self.cls_x = nn.Linear(gau_cfg.hidden_dims, W, bias=False)
-        self.cls_y = nn.Linear(gau_cfg.hidden_dims, H, bias=False)
+        self.conv = nn.Conv1d(64, out_channels, 1)
+
+        self.cls_x = nn.Linear(gau_cfg.hidden_dims, W)
+        self.cls_y = nn.Linear(gau_cfg.hidden_dims, H)
 
     def forward(self, feats: Tuple[Tensor]) -> Tuple[Tensor, Tensor]:
         """Forward the network.
@@ -171,13 +175,15 @@ class RTMHead3(BaseHead):
             # pred_x = self.decoder_x[i](pred_x)
             # pred_y = self.decoder_y[i](pred_y)
             feats = self.decoders[i](feats)
-        pred_x = self.split_x(feats)
-        pred_y = self.split_y(feats)
+        # pred_x = self.split_x(feats)
+        # pred_y = self.split_y(feats)
 
-        pred_x = self.cls_x(pred_x)
-        pred_y = self.cls_y(pred_y)
-        # pred_x = self.cls_x(feats)
-        # pred_y = self.cls_y(feats)
+        # pred_x = self.cls_x(pred_x)
+        # pred_y = self.cls_y(pred_y)
+        # feats = self.conv(feats)  # 96 -> K
+
+        pred_x = self.cls_x(feats[:self.out_channels])
+        pred_y = self.cls_y(feats[self.out_channels:])
 
         return pred_x, pred_y
 

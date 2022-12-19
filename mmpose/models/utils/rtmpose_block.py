@@ -58,7 +58,7 @@ class SE(nn.Module):
 class Scale(nn.Module):
     """Scale vector by element multiplications."""
 
-    def __init__(self, dim, init_value=1.0, trainable=True):
+    def __init__(self, dim, init_value=1e-6, trainable=True):
         super().__init__()
         self.scale = nn.Parameter(
             init_value * torch.ones(dim), requires_grad=trainable)
@@ -220,7 +220,9 @@ class RTMBlock(nn.Module):
 
             base = base.unsqueeze(2) * self.gamma[None, None, :] + self.beta
             if self.pos_enc:
+                # base = base.permute(0, 3, 2, 1)
                 base = rope(base, dim=1)
+                # base = base.permute(0, 3, 2, 1)
 
             q, k = torch.unbind(base, dim=-2)
 
