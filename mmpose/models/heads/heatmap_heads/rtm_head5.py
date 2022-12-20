@@ -180,10 +180,10 @@ class RTMHead5(BaseHead):
 
         # pred_x = self.cls_x(pred_x)
         # pred_y = self.cls_y(pred_y)
-        # feats = self.conv(feats)  # 96 -> K
+        feats = self.conv(feats)  # 96 -> K
 
-        pred_x = self.cls_x(feats[:self.out_channels])
-        pred_y = self.cls_y(feats[self.out_channels:])
+        pred_x = self.cls_x(feats)
+        pred_y = self.cls_y(feats)
 
         return pred_x, pred_y
 

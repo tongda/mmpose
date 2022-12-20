@@ -130,24 +130,8 @@ class RTMHead4(BaseHead):
             ]
             self.decoders = nn.ModuleList(decoder_x)
 
-            # decoder_y = [
-            #     RTMBlock(
-            #         self.out_channels,
-            #         gau_cfg.hidden_dims,
-            #         gau_cfg.hidden_dims,
-            #         s=gau_cfg.s,
-            #         dropout_rate=gau_cfg.dropout_rate,
-            #         drop_path=gau_cfg.drop_path,
-            #         attn_type='self-attn',
-            #         shift=gau_cfg.shift,
-            #         act_fn=gau_cfg.act_fn,
-            #         use_rel_bias=gau_cfg.use_rel_bias)
-            #     for _ in range(num_self_attn)
-            # ]
-            # self.decoder_y = nn.ModuleList(decoder_y)
-
-        self.cls_x = nn.Linear(gau_cfg.hidden_dims, W)
-        self.cls_y = nn.Linear(gau_cfg.hidden_dims, H)
+        self.cls_x = nn.Linear(gau_cfg.hidden_dims, W, bias=False)
+        self.cls_y = nn.Linear(gau_cfg.hidden_dims, H, bias=False)
 
     def forward(self, feats: Tuple[Tensor]) -> Tuple[Tensor, Tensor]:
         """Forward the network.

@@ -58,7 +58,7 @@ class SE(nn.Module):
 class Scale(nn.Module):
     """Scale vector by element multiplications."""
 
-    def __init__(self, dim, init_value=1e-6, trainable=True):
+    def __init__(self, dim, init_value=1., trainable=True):
         super().__init__()
         self.scale = nn.Parameter(
             init_value * torch.ones(dim), requires_grad=trainable)
