@@ -2,7 +2,8 @@
 from typing import Optional, Sequence, Tuple, Union
 
 import torch
-from mmcv.cnn import build_conv_layer
+# from mmcv.cnn import build_conv_layer
+from mmcv.ops.deform_conv import DeformConv2dPack
 from torch import Tensor, nn
 
 from mmpose.evaluation.functional import simcc_pck_accuracy
@@ -31,12 +32,13 @@ class RTMHead2(BaseHead):
         gau_cfg: ConfigType = dict(
             hidden_dims=256,
             s=128,
+            expansion_factor=2,
             shift=False,
             dropout_rate=0.,
             drop_path=0.,
             act_fn='ReLU',
             use_rel_bias=False,
-        ),
+            pos_enc=False),
         num_self_attn: int = 1,
         input_transform: str = 'select',
         input_index: Union[int, Sequence[int]] = -1,
@@ -78,14 +80,21 @@ class RTMHead2(BaseHead):
         # Define SimCC layers
         flatten_dims = self.in_featuremap_size[0] * self.in_featuremap_size[1]
 
-        cfg = dict(
-            type='Conv2d',
-            in_channels=in_channels,
-            out_channels=out_channels,
-            kernel_size=final_layer_kernel_size,
+        # cfg = dict(
+        #     type='Conv2d',
+        #     in_channels=in_channels,
+        #     out_channels=out_channels,
+        #     kernel_size=final_layer_kernel_size,
+        #     stride=1,
+        #     padding=final_layer_kernel_size // 2)
+        # self.final_layer = build_conv_layer(cfg)
+        self.final_layer = DeformConv2dPack(
+            in_channels,
+            out_channels,
+            final_layer_kernel_size,
             stride=1,
-            padding=final_layer_kernel_size // 2)
-        self.final_layer = build_conv_layer(cfg)
+            padding=final_layer_kernel_size // 2,
+            bias=False)
         self.mlp = nn.Sequential(
             ScaleNorm(flatten_dims),
             nn.Linear(flatten_dims, gau_cfg.hidden_dims, bias=False))
@@ -118,31 +127,16 @@ class RTMHead2(BaseHead):
                     gau_cfg.hidden_dims,
                     gau_cfg.hidden_dims,
                     s=gau_cfg.s,
+                    expansion_factor=gau_cfg.expansion_factor,
                     dropout_rate=gau_cfg.dropout_rate,
                     drop_path=gau_cfg.drop_path,
                     attn_type='self-attn',
                     shift=gau_cfg.shift,
                     act_fn=gau_cfg.act_fn,
-                    use_rel_bias=gau_cfg.use_rel_bias)
-                for _ in range(num_self_attn)
+                    use_rel_bias=gau_cfg.use_rel_bias,
+                    pos_enc=gau_cfg.pos_enc) for _ in range(num_self_attn)
             ]
             self.decoders = nn.ModuleList(decoder_x)
-
-            # decoder_y = [
-            #     RTMBlock(
-            #         self.out_channels,
-            #         gau_cfg.hidden_dims,
-            #         gau_cfg.hidden_dims,
-            #         s=gau_cfg.s,
-            #         dropout_rate=gau_cfg.dropout_rate,
-            #         drop_path=gau_cfg.drop_path,
-            #         attn_type='self-attn',
-            #         shift=gau_cfg.shift,
-            #         act_fn=gau_cfg.act_fn,
-            #         use_rel_bias=gau_cfg.use_rel_bias)
-            #     for _ in range(num_self_attn)
-            # ]
-            # self.decoder_y = nn.ModuleList(decoder_y)
 
         self.cls_x = nn.Linear(gau_cfg.hidden_dims, W, bias=False)
         self.cls_y = nn.Linear(gau_cfg.hidden_dims, H, bias=False)
@@ -167,13 +161,12 @@ class RTMHead2(BaseHead):
 
         feats = self.mlp(feats)  # -> B, K, hidden
 
-        # pred_x = self.split_x(feats)
-        # pred_y = self.split_y(feats)
-
         for i in range(self.num_self_attn):
             # pred_x = self.decoder_x[i](pred_x)
             # pred_y = self.decoder_y[i](pred_y)
             feats = self.decoders[i](feats)
+        # pred_x = self.split_x(feats)
+        # pred_y = self.split_y(feats)
 
         # pred_x = self.cls_x(pred_x)
         # pred_y = self.cls_y(pred_y)
