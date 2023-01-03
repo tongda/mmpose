@@ -112,6 +112,9 @@ class SimCCLabel(BaseKeypointCodec):
             - keypoint_weights (np.ndarray): The target weights in shape
                 (N, K)
         """
+        w, h = self.input_size
+        keypoint_labels = (keypoints / np.array([w, h])).astype(np.float32)
+
         if keypoints_visible is None:
             keypoints_visible = np.ones(keypoints.shape[:2], dtype=np.float32)
 
@@ -131,6 +134,7 @@ class SimCCLabel(BaseKeypointCodec):
                 '{"gaussian", "standard"}')
 
         encoded = dict(
+            keypoint_labels=keypoint_labels,
             keypoint_x_labels=x_labels,
             keypoint_y_labels=y_labels,
             keypoint_weights=keypoint_weights)

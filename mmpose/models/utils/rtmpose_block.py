@@ -254,7 +254,8 @@ class RTMBlock(nn.Module):
         if self.dropout_rate > 0.:
             kernel = self.dropout(kernel)
 
-        x = u * torch.bmm(kernel, v)
+        # x = u * torch.bmm(kernel, v)
+        x = u * v
         x = self.o(x)
 
         return x

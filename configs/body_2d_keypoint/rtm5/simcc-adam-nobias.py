@@ -11,7 +11,7 @@ randomness = dict(seed=21)
 # optimizer
 optim_wrapper = dict(
     type='OptimWrapper',
-    optimizer=dict(type='AdamW', lr=base_lr, weight_decay=0.05),
+    optimizer=dict(type='Adam', lr=base_lr, weight_decay=0),
     # clip_grad=dict(max_norm=1., norm_type=2),
     paramwise_cfg=dict(
         norm_decay_mult=0, bias_decay_mult=0, bypass_duplicate=True))
@@ -40,12 +40,7 @@ auto_scale_lr = dict(base_batch_size=1024)
 
 # codec settings
 codec = dict(
-    type='SimCCLabel',
-    input_size=(192, 256),
-    sigma=(4.9, 5.66),
-    simcc_split_ratio=2.0,
-    normalize=False,
-    use_dark=False)
+    type='SimCCLabel', input_size=(192, 256), sigma=6.0, simcc_split_ratio=2.0)
 
 # model settings
 model = dict(
@@ -72,36 +67,21 @@ model = dict(
             checkpoint='/mnt/petrelfs/jiangtao/pretrained_models/'
             'cspnext-m_coco_256x192.pth')),
     head=dict(
-        type='RTMHead4',
+        type='SimCCHead',
         in_channels=768,
         out_channels=17,
         input_size=codec['input_size'],
+        deconv_out_channels=None,
         in_featuremap_size=(6, 8),
         simcc_split_ratio=codec['simcc_split_ratio'],
-        final_layer_kernel_size=5,
-        gau_cfg=dict(
-            hidden_dims=256,
-            s=128,
-            expansion_factor=2,
-            shift=False,
-            dropout_rate=0.,
-            drop_path=0.,
-            act_fn='SiLU',
-            use_rel_bias=False,
-            pos_enc=False),
-        num_self_attn=1,
-        loss=dict(
-            type='KLDiscretLoss',
-            use_target_weight=True,
-            beta=10.,
-            label_softmax=True),
+        loss=dict(type='KLDiscretLoss', use_target_weight=True),
         decoder=codec),
     test_cfg=dict(flip_test=False))
 
 # base dataset settings
 dataset_type = 'CocoDataset'
 data_mode = 'topdown'
-data_root = 'data/coco/'
+data_root = '/mnt/lustre/share_data/openmmlab/datasets/detection/coco/'
 
 file_client_args = dict(
     backend='petrel',
@@ -116,28 +96,8 @@ train_pipeline = [
     dict(type='GetBBoxCenterScale'),
     dict(type='RandomFlip', direction='horizontal'),
     dict(type='RandomHalfBody'),
-    dict(
-        type='RandomBBoxTransform', scale_factor=[0.6, 1.4], rotate_factor=80),
+    dict(type='RandomBBoxTransform'),
     dict(type='TopdownAffine', input_size=codec['input_size']),
-    # dict(type='PhotometricDistortion'),
-    dict(type='mmdet.YOLOXHSVRandomAug'),
-    dict(
-        type='Albumentation',
-        transforms=[
-            dict(type='Blur', p=0.1),
-            dict(type='MedianBlur', p=0.1),
-            # dict(type='ToGray', p=0.01),
-            # dict(type='CLAHE', p=0.01),
-            dict(
-                type='CoarseDropout',
-                max_holes=1,
-                max_height=0.4,
-                max_width=0.4,
-                min_holes=1,
-                min_height=0.2,
-                min_width=0.2,
-                p=1.),
-        ]),
     dict(type='GenerateTarget', encoder=codec),
     dict(type='PackPoseInputs')
 ]
@@ -148,45 +108,11 @@ val_pipeline = [
     dict(type='PackPoseInputs')
 ]
 
-train_pipeline_stage2 = [
-    dict(type='LoadImage', file_client_args=file_client_args),
-    dict(type='GetBBoxCenterScale'),
-    dict(type='RandomFlip', direction='horizontal'),
-    dict(type='RandomHalfBody'),
-    dict(
-        type='RandomBBoxTransform',
-        shift_factor=0.,
-        scale_factor=[0.75, 1.25],
-        rotate_factor=60),
-    dict(type='TopdownAffine', input_size=codec['input_size']),
-    dict(type='mmdet.YOLOXHSVRandomAug'),
-    dict(
-        type='Albumentation',
-        transforms=[
-            dict(type='Blur', p=0.1),
-            dict(type='MedianBlur', p=0.1),
-            # dict(type='ToGray', p=0.01),
-            # dict(type='CLAHE', p=0.01),
-            dict(
-                type='CoarseDropout',
-                max_holes=1,
-                max_height=0.4,
-                max_width=0.4,
-                min_holes=1,
-                min_height=0.2,
-                min_width=0.2,
-                p=0.5),
-        ]),
-    dict(type='GenerateTarget', encoder=codec),
-    dict(type='PackPoseInputs')
-]
-
 # data loaders
 train_dataloader = dict(
     batch_size=128 * 2,
     num_workers=10,
     persistent_workers=True,
-    drop_last=True,
     sampler=dict(type='DefaultSampler', shuffle=True),
     dataset=dict(
         type=dataset_type,
@@ -207,8 +133,8 @@ val_dataloader = dict(
         data_root=data_root,
         data_mode=data_mode,
         ann_file='annotations/person_keypoints_val2017.json',
-        # bbox_file=f'{data_root}person_detection_results/'
-        # 'COCO_val2017_detections_AP_H_56_person.json',
+        bbox_file=f'{data_root}person_detection_results/'
+        'COCO_val2017_detections_AP_H_56_person.json',
         # bbox_file='/mnt/petrelfs/jiangtao/rtmdet-nano-bbox.json',
         data_prefix=dict(img='val2017/'),
         test_mode=True,
@@ -227,10 +153,10 @@ custom_hooks = [
         momentum=0.0002,
         update_buffers=True,
         priority=49),
-    dict(
-        type='mmdet.PipelineSwitchHook',
-        switch_epoch=max_epochs - stage2_num_epochs,
-        switch_pipeline=train_pipeline_stage2)
+    # dict(
+    #     type='mmdet.PipelineSwitchHook',
+    #     switch_epoch=max_epochs - stage2_num_epochs,
+    #     switch_pipeline=train_pipeline_stage2)
 ]
 
 # evaluators

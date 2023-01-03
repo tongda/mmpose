@@ -1,7 +1,7 @@
 _base_ = ['../../_base_/default_runtime.py']
 
 # runtime
-max_epochs = 270
+max_epochs = 420
 stage2_num_epochs = 30
 base_lr = 4e-3
 

@@ -1,7 +1,7 @@
 _base_ = ['../../_base_/default_runtime.py']
 
 # runtime
-max_epochs = 270
+max_epochs = 420
 stage2_num_epochs = 30
 base_lr = 4e-3
 
@@ -28,9 +28,9 @@ param_scheduler = [
         # use cosine lr from 150 to 300 epoch
         type='CosineAnnealingLR',
         eta_min=base_lr * 0.05,
-        begin=max_epochs // 2,
+        begin=max_epochs // 3,
         end=max_epochs,
-        T_max=max_epochs // 2,
+        T_max=2 * max_epochs // 3,
         by_epoch=True,
         convert_to_iter_based=True),
 ]
@@ -60,8 +60,8 @@ model = dict(
         type='CSPNeXt',
         arch='P5',
         expand_ratio=0.5,
-        deepen_factor=0.67,
-        widen_factor=0.75,
+        deepen_factor=0.167,
+        widen_factor=0.375,
         out_indices=(4, ),
         channel_attention=True,
         norm_cfg=dict(type='SyncBN'),
@@ -70,10 +70,10 @@ model = dict(
             type='Pretrained',
             prefix='backbone.',
             checkpoint='/mnt/petrelfs/jiangtao/pretrained_models/'
-            'cspnext-m_coco-aic_256x192.pth')),
+            'cspnext-tiny_coco-aic_256x192.pth')),
     head=dict(
         type='RTMHead4',
-        in_channels=768,
+        in_channels=384,
         out_channels=17,
         input_size=codec['input_size'],
         in_featuremap_size=(6, 8),
@@ -256,12 +256,12 @@ default_hooks = dict(
     checkpoint=dict(save_best='coco/AP', rule='greater', max_keep_ckpts=1))
 
 custom_hooks = [
-    dict(
-        type='EMAHook',
-        ema_type='ExpMomentumEMA',
-        momentum=0.0002,
-        update_buffers=True,
-        priority=49),
+    # dict(
+    #     type='EMAHook',
+    #     ema_type='ExpMomentumEMA',
+    #     momentum=0.0002,
+    #     update_buffers=True,
+    #     priority=49),
     dict(
         type='mmdet.PipelineSwitchHook',
         switch_epoch=max_epochs - stage2_num_epochs,

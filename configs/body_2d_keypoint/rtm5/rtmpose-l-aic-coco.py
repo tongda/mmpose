@@ -1,11 +1,11 @@
 _base_ = ['../../_base_/default_runtime.py']
 
 # runtime
-max_epochs = 210
+max_epochs = 270
 stage2_num_epochs = 30
 base_lr = 4e-3
 
-train_cfg = dict(max_epochs=210, val_interval=10)
+train_cfg = dict(max_epochs=max_epochs, val_interval=10)
 randomness = dict(seed=21)
 
 # optimizer
@@ -72,22 +72,23 @@ model = dict(
             checkpoint='/mnt/petrelfs/jiangtao/pretrained_models/'
             'cspnext-l_coco-aic_256x192.pth')),
     head=dict(
-        type='RTMHead',
+        type='RTMHead4',
         in_channels=1024,
         out_channels=17,
         input_size=codec['input_size'],
         in_featuremap_size=(6, 8),
         simcc_split_ratio=codec['simcc_split_ratio'],
-        final_layer_kernel_size=5,
+        final_layer_kernel_size=7,
         gau_cfg=dict(
             hidden_dims=256,
             s=128,
+            expansion_factor=2,
             shift=False,
             dropout_rate=0.,
             drop_path=0.,
             act_fn='SiLU',
             use_rel_bias=False,
-        ),
+            pos_enc=False),
         num_self_attn=1,
         loss=dict(
             type='KLDiscretLoss',

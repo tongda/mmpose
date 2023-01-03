@@ -7,10 +7,11 @@ from .rtm_head2 import RTMHead2
 from .rtm_head3 import RTMHead3
 from .rtm_head4 import RTMHead4
 from .rtm_head5 import RTMHead5
+from .rtm_head6 import RTMHead6
 from .simcc_head import SimCCHead
 from .vipnas_head import ViPNASHead
 
 __all__ = [
     'HeatmapHead', 'CPMHead', 'MSPNHead', 'ViPNASHead', 'SimCCHead', 'RTMHead',
-    'RTMHead2', 'RTMHead3', 'RTMHead4', 'RTMHead5'
+    'RTMHead2', 'RTMHead3', 'RTMHead4', 'RTMHead5', 'RTMHead6'
 ]
